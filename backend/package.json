@@ -1,0 +1,31 @@
+{
+  "name": "voting-example-solana-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env --watch index.js",
+    "start": "node --env-file-if-exists=.env index.js",
+    "lint": "standard",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.922.0",
+    "@fastify/rate-limit": "^10.3.0",
+    "bs58": "^6.0.0",
+    "fastify": "^5.6.0",
+    "@fastify/autoload": "^6.0.0",
+    "fastify-plugin": "^5.0.0"
+  },
+  "devDependencies": {
+    "standard": "^17.1.2"
+  },
+  "overrides": {
+    "decode-uri-component": "^0.5.0",
+    "uuid": "^11.1.0",
+    "ws": "^8.22.0"
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "name": "voting-example-solana-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "start": "vite preview --host 127.0.0.1",
+    "lint": "standard",
+    "test": "playwright test",
+    "test:browser": "playwright test"
+  },
+  "dependencies": {
+    "@preact/preset-vite": "^2.10.6",
+    "@privy-io/react-auth": "^3.47.0",
+    "@solana-program/memo": "0.10.0",
+    "bs58": "^6.0.0",
+    "lucide-preact": "^1.51.0",
+    "preact": "^11.0.0",
+    "react": "npm:@preact/compat@^18.3.2",
+    "react-dom": "npm:@preact/compat@^18.3.2",
+    "vite": "^8.3.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "standard": "^17.1.2"
+  },
+  "standard": {
+    "env": [
+      "browser"
+    ],
+    "ignore": [
+      "dist/**"
+    ]
+  },
+  "overrides": {
+    "decode-uri-component": "^0.5.0",
+    "uuid": "^11.1.0",
+    "ws": "^8.22.0"
+  }
+}
