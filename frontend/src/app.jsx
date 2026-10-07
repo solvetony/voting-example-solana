@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import { AlertTriangle, ArrowLeft, ArrowRight, ArrowUpRight, CheckCircle2, ChevronRight, Clock, Copy, ExternalLink, LoaderCircle, LogOut, Moon, Plus, RefreshCw, Search, Sun, Trash2, Vote, Wallet, X } from 'lucide-preact'
 import { useWallet } from './wallet.jsx'
 import { request, solanaIndex } from './api.js'
-import { formatAmount, verifyReceipt } from './signing.js'
+import { formatAmount, signingText, verifyReceipt } from './signing.js'
 import { useTheme } from './theme.js'
 
 function short (value) { return value ? `${value.slice(0, 5)}...${value.slice(-5)}` : '' }
@@ -61,13 +61,13 @@ function ReceiptDialog ({ record, close }) {
       <div className='receipt-validation'>
         {!result && !error && <p role='status'><LoaderCircle className='spin' size={18} /> Validating Solana signature…</p>}
         <Notice error={error} />
-        {result && <><p className={result.valid ? 'signature-valid' : 'notice'} role='status'>{result.valid ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}{result.valid ? 'Signature is valid' : 'Signature is invalid'}</p><p>This checks the signed message, not voting power or proposal results.</p><ReceiptValue label='Signer' value={result.address} /><ReceiptValue label='Signature' value={result.signature} /><ReceiptValue label='Original data' value={JSON.stringify(result.data)} />{Object.entries(result.data).map(([label, value]) => <ReceiptValue key={label} label={label} value={typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)} />)}</>}
+        {result && <><p className={result.valid ? 'signature-valid' : 'notice'} role='status'>{result.valid ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}{result.valid ? 'Signature is valid' : 'Signature is invalid'}</p><p>This checks the signed message, not voting power or proposal results.</p><ReceiptValue label='Message' value={signingText(result.data)} /><ReceiptValue label='Signature' value={result.signature} signer={result.address} /></>}
         <div><p>IPFS receipt</p><a className='receipt-url' href={url} target='_blank' rel='noreferrer' aria-label='Open IPFS receipt'><span>{url}</span><ArrowUpRight size={16} /></a></div>
       </div>
     </Modal>
   )
 }
-function ReceiptValue ({ label, value }) {
+function ReceiptValue ({ label, value, signer }) {
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState('')
   async function copy () {
@@ -77,7 +77,7 @@ function ReceiptValue ({ label, value }) {
       setError('')
     } catch { setError('Clipboard unavailable') }
   }
-  return <div className='receipt-value'><div><strong>{label}</strong><button className='text-button' type='button' onClick={copy} aria-label={`Copy ${label}`}><Copy size={15} />{copied ? 'Copied' : 'Copy'}</button></div><pre>{value}</pre><Notice error={error} /></div>
+  return <div className='receipt-value'><div><strong>{label}</strong><button className='text-button' type='button' onClick={copy} aria-label={`Copy ${label}`}><Copy size={15} />{copied ? 'Copied' : 'Copy'}</button></div>{signer && <p>Signer <code>{signer}</code></p>}<pre>{value}</pre><Notice error={error} /></div>
 }
 function Modal ({ title, close, children }) {
   const ref = useRef()

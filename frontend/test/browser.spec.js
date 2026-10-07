@@ -50,7 +50,9 @@ for (const outcome of ['valid', 'invalid', 'unavailable']) {
       await expect(dialog.getByRole('link', { name: 'Open IPFS receipt' })).toHaveAttribute('href', `https://ipfs.4everland.io/ipfs/${proposalId}`)
       await expect(dialog.getByRole('link', { name: 'Open IPFS receipt' })).toHaveText(`https://ipfs.4everland.io/ipfs/${proposalId}`)
       if (outcome !== 'unavailable') {
-        for (const [label, value] of [['Original data', JSON.stringify(data)], ['Signature', envelope.signature], ['title', data.title]]) {
+        await expect(dialog.getByRole('button', { name: /^Copy / })).toHaveCount(2)
+        await expect(dialog.locator('.receipt-value').filter({ hasText: 'Signature' })).toContainText(envelope.address)
+        for (const [label, value] of [['Message', signingText(data)], ['Signature', envelope.signature]]) {
           await dialog.getByRole('button', { name: `Copy ${label}`, exact: true }).click()
           expect(await page.evaluate(() => window.copiedReceiptValue)).toBe(value)
         }
