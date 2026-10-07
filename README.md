@@ -162,3 +162,7 @@ npm run test:browser
 The Privy React SDK runs through Preact's compatibility layer. References:
 [Preact compatibility](https://preactjs.com/guide/v10/getting-started/),
 [Privy Solana signing](https://docs.privy.io/wallets/using-wallets/solana/sign-a-message).
+
+## License
+
+Licensed under the [MIT License](LICENSE).
