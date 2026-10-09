@@ -8,11 +8,22 @@ const WalletContext = createContext({ ready: false, wallets: [], address: '', lo
 export const useWallet = () => useContext(WalletContext)
 
 function WalletBridge ({ children }) {
-  const { ready, authenticated, login, logout } = usePrivy()
+  const { ready, authenticated, login, logout: privyLogout } = usePrivy()
   const { wallets } = useWallets()
   const { signMessage } = useSignMessage()
   const [selected, setSelected] = useState('')
-  const wallet = wallets.find(wallet => wallet.address === selected) || wallets[0]
+  const [error, setError] = useState('')
+  const wallet = authenticated ? wallets.find(wallet => wallet.address === selected) || wallets[0] : undefined
+
+  async function logout () {
+    setError('')
+    const results = await Promise.allSettled(wallets.map(wallet => wallet.disconnect()))
+    try {
+      await privyLogout()
+      setSelected('')
+      if (results.some(result => result.status === 'rejected')) setError('Wallet disconnect failed. Disconnect this site in your wallet extension.')
+    } catch { setError('Logout failed. Please try again.') }
+  }
 
   async function sign (value) {
     if (!wallet || !authenticated) throw new Error('Connect your Solana wallet first')
@@ -21,7 +32,7 @@ function WalletBridge ({ children }) {
     return { data, address: wallet.address, signature: signatureHex(signed.signature) }
   }
   return (
-    <WalletContext.Provider value={{ ready, authenticated, wallets, address: wallet?.address || '', select: setSelected, login, logout, sign }}>
+    <WalletContext.Provider value={{ ready, authenticated, wallets, address: wallet?.address || '', error, select: setSelected, login, logout, sign }}>
       {children}
     </WalletContext.Provider>
   )

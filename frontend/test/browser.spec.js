@@ -1,9 +1,47 @@
 import { test, expect } from '@playwright/test'
 import { generateKeyPairSync, sign } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
+import { transformWithOxc } from 'vite'
 import bs58 from 'bs58'
 import { signingText } from '../src/signing.js'
 
 const mint = 'FLUXBmPhT3Fd1EDVFdg46YREqHBeNypn1h4EbnTzWERX'
+
+test('disconnect clears Phantom and the session even while the SDK retains wallets', async ({ page }) => {
+  const main = await page.request.get('/src/main.jsx').then(response => response.text())
+  const wallet = await readFile(new URL('../src/wallet.jsx', import.meta.url), 'utf8')
+  const transformed = await transformWithOxc(wallet.replace('import.meta.env.VITE_PRIVY_APP_ID', "'test-app'"), 'wallet.jsx', { jsx: { runtime: 'classic', pragma: 'h', pragmaFrag: 'Fragment' } })
+  const walletModule = "import { h, Fragment } from '/node_modules/.vite/deps/preact.js'\n" + transformed.code.replaceAll('"preact"', '"/node_modules/.vite/deps/preact.js"').replaceAll('"preact/hooks"', '"/node_modules/.vite/deps/preact_hooks.js"').replaceAll('"@privy-io/react-auth"', '"/test-privy.jsx"').replaceAll('"@privy-io/react-auth/solana"', '"/test-solana.jsx"')
+  await page.route('**/src/main.jsx', route => route.fulfill({ contentType: 'text/javascript', body: main.replace(/const Provider = .*;/, 'const Provider = WalletProvider;') }))
+  await page.route('**/src/wallet.jsx', route => route.fulfill({ contentType: 'text/javascript', body: walletModule }))
+  await page.route('**/test-privy.jsx', route => route.fulfill({
+    contentType: 'text/javascript',
+    body: `import { createContext, h } from '/node_modules/.vite/deps/preact.js'
+      import { useContext, useState } from '/node_modules/.vite/deps/preact_hooks.js'
+      const context = createContext({})
+      export const usePrivy = () => useContext(context)
+      export function PrivyProvider ({children}) {
+        const [authenticated, setAuthenticated] = useState(true)
+        return h(context.Provider, {value: { ready: true, authenticated, login () { setAuthenticated(true) }, async logout () { window.privyLoggedOut = true; setAuthenticated(false) } }}, children)
+      }`
+  }))
+  await page.route('**/test-solana.jsx', route => route.fulfill({
+    contentType: 'text/javascript',
+    body: `const wallets = [{ address: '${mint}', async disconnect () { window.phantomDisconnected = true } }]
+      export const useWallets = () => ({ wallets })
+      export const useSignMessage = () => ({})
+      export const toSolanaWalletConnectors = () => []`
+  }))
+  await page.goto('/')
+  await expect(page.getByRole('combobox', { name: 'Selected Solana wallet' })).toBeVisible()
+  await page.getByRole('button', { name: 'Disconnect wallet' }).click()
+  await expect(page.getByRole('button', { name: 'Connect wallet', exact: true })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Selected Solana wallet' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Create space', exact: true })).toBeDisabled()
+  expect(await page.evaluate(() => window.phantomDisconnected && window.privyLoggedOut)).toBe(true)
+  await page.getByRole('button', { name: 'Connect wallet', exact: true }).click()
+  await expect(page.getByRole('combobox', { name: 'Selected Solana wallet' })).toBeVisible()
+})
 const proposalId = 'bafy' + 'a'.repeat(60)
 const space = {
   data: { id: 'fluxbot', name: 'FluxBot community', description: 'A shared space for the FluxBot community to decide what comes next.', token: mint },

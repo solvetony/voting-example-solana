@@ -120,6 +120,7 @@ export default function App () {
         </div>
       </header>
       <main>
+        <Notice error={wallet.error} />
         {!import.meta.env.VITE_PRIVY_APP_ID && <Notice error='Wallet login is not configured yet.' />}
         {status.value && !status.value.storageReady && <Notice error='Space storage is not configured yet.' />}
         {status.value && !status.value.indexReady && <Notice error='Voting power verification is not configured yet.' />}
