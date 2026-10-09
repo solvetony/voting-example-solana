@@ -8,12 +8,18 @@ const WalletContext = createContext({ ready: false, wallets: [], address: '', lo
 export const useWallet = () => useContext(WalletContext)
 
 function WalletBridge ({ children }) {
-  const { ready, authenticated, login, logout: privyLogout } = usePrivy()
+  const { ready, authenticated, login: privyLogin, connectWallet, logout: privyLogout } = usePrivy()
   const { wallets } = useWallets()
   const { signMessage } = useSignMessage()
   const [selected, setSelected] = useState('')
   const [error, setError] = useState('')
   const wallet = authenticated ? wallets.find(wallet => wallet.address === selected) || wallets[0] : undefined
+
+  function login () {
+    setError('')
+    if (authenticated) connectWallet()
+    else privyLogin()
+  }
 
   async function logout () {
     setError('')

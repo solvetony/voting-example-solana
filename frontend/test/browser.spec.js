@@ -2,46 +2,103 @@ import { test, expect } from '@playwright/test'
 import { generateKeyPairSync, sign } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { transformWithOxc } from 'vite'
+import { ConnectedStandardSolanaWallet } from '@privy-io/js-sdk-core'
 import bs58 from 'bs58'
-import { signingText } from '../src/signing.js'
+import { signingText, verifyReceipt } from '../src/signing.js'
 
 const mint = 'FLUXBmPhT3Fd1EDVFdg46YREqHBeNypn1h4EbnTzWERX'
 
-test('disconnect clears Phantom and the session even while the SDK retains wallets', async ({ page }) => {
-  const main = await page.request.get('/src/main.jsx').then(response => response.text())
-  const wallet = await readFile(new URL('../src/wallet.jsx', import.meta.url), 'utf8')
-  const transformed = await transformWithOxc(wallet.replace('import.meta.env.VITE_PRIVY_APP_ID', "'test-app'"), 'wallet.jsx', { jsx: { runtime: 'classic', pragma: 'h', pragmaFrag: 'Fragment' } })
-  const walletModule = "import { h, Fragment } from '/node_modules/.vite/deps/preact.js'\n" + transformed.code.replaceAll('"preact"', '"/node_modules/.vite/deps/preact.js"').replaceAll('"preact/hooks"', '"/node_modules/.vite/deps/preact_hooks.js"').replaceAll('"@privy-io/react-auth"', '"/test-privy.jsx"').replaceAll('"@privy-io/react-auth/solana"', '"/test-solana.jsx"')
-  await page.route('**/src/main.jsx', route => route.fulfill({ contentType: 'text/javascript', body: main.replace(/const Provider = .*;/, 'const Provider = WalletProvider;') }))
-  await page.route('**/src/wallet.jsx', route => route.fulfill({ contentType: 'text/javascript', body: walletModule }))
-  await page.route('**/test-privy.jsx', route => route.fulfill({
-    contentType: 'text/javascript',
-    body: `import { createContext, h } from '/node_modules/.vite/deps/preact.js'
+for (const walletName of ['Phantom', 'Solflare']) {
+  test(`${walletName} account changes reconnect and produce a valid vote signature`, async ({ page }) => {
+    const { publicKey, privateKey } = generateKeyPairSync('ed25519')
+    const newAddress = bs58.encode(publicKey.export({ type: 'spki', format: 'der' }).subarray(-32))
+    const account = { address: newAddress, publicKey: bs58.decode(newAddress), chains: ['solana:mainnet'], features: ['solana:signMessage'] }
+    const connected = new ConnectedStandardSolanaWallet({
+      account,
+      wallet: {
+        name: walletName,
+        accounts: [account],
+        features: {
+          'solana:signMessage': {
+            version: '1.0.0',
+            async signMessage (input) {
+              expect(input.account.address).toBe(newAddress)
+              return [{ signedMessage: input.message, signature: new Uint8Array(sign(null, input.message, privateKey)) }]
+            }
+          }
+        }
+      }
+    })
+    await page.route('**/test-sign', async route => {
+      const { address, message } = route.request().postDataJSON()
+      expect(address).toBe(connected.address)
+      const signed = await connected.signMessage({ message: new Uint8Array(message) })
+      await route.fulfill({ json: { signature: Array.from(signed.signature) } })
+    })
+    let submitted
+    await page.route('**/voting-api/**/votes', async route => {
+      submitted = route.request().postDataJSON()
+      expect(submitted.address).toBe(newAddress)
+      expect(submitted.data.realVoter).toBe(newAddress)
+      expect(await verifyReceipt(submitted)).toBe(true)
+      await route.fulfill({ json: { ...submitted, cid: proposalId } })
+    })
+    const main = await page.request.get('/src/main.jsx').then(response => response.text())
+    const wallet = await readFile(new URL('../src/wallet.jsx', import.meta.url), 'utf8')
+    const transformed = await transformWithOxc(wallet.replace('import.meta.env.VITE_PRIVY_APP_ID', "'test-app'"), 'wallet.jsx', { jsx: { runtime: 'classic', pragma: 'h', pragmaFrag: 'Fragment' } })
+    const walletModule = "import { h, Fragment } from '/node_modules/.vite/deps/preact.js'\n" + transformed.code.replaceAll('"preact"', '"/node_modules/.vite/deps/preact.js"').replaceAll('"preact/hooks"', '"/node_modules/.vite/deps/preact_hooks.js"').replaceAll('"@privy-io/react-auth"', '"/test-privy.jsx"').replaceAll('"@privy-io/react-auth/solana"', '"/test-solana.jsx"')
+    await page.route('**/src/main.jsx', route => route.fulfill({ contentType: 'text/javascript', body: main.replace(/const Provider = .*;/, 'const Provider = WalletProvider;') }))
+    await page.route('**/src/wallet.jsx', route => route.fulfill({ contentType: 'text/javascript', body: walletModule }))
+    await page.route('**/test-privy.jsx', route => route.fulfill({
+      contentType: 'text/javascript',
+      body: `import { createContext, h } from '/node_modules/.vite/deps/preact.js'
       import { useContext, useState } from '/node_modules/.vite/deps/preact_hooks.js'
       const context = createContext({})
       export const usePrivy = () => useContext(context)
       export function PrivyProvider ({children}) {
         const [authenticated, setAuthenticated] = useState(true)
-        return h(context.Provider, {value: { ready: true, authenticated, login () { setAuthenticated(true) }, async logout () { window.privyLoggedOut = true; setAuthenticated(false) } }}, children)
+        return h(context.Provider, {value: { ready: true, authenticated, login () { if (authenticated) throw new Error('Already logged in'); setAuthenticated(true) }, connectWallet () { window.reconnectWallet() }, async logout () { window.privyLoggedOut = true; setAuthenticated(false) } }}, children)
       }`
-  }))
-  await page.route('**/test-solana.jsx', route => route.fulfill({
-    contentType: 'text/javascript',
-    body: `const wallets = [{ address: '${mint}', async disconnect () { window.phantomDisconnected = true } }]
-      export const useWallets = () => ({ wallets })
-      export const useSignMessage = () => ({})
+    }))
+    await page.route('**/test-solana.jsx', route => route.fulfill({
+      contentType: 'text/javascript',
+      body: `import { useState } from '/node_modules/.vite/deps/preact_hooks.js'
+      const initial = [{ address: '${mint}', standardWallet: { name: '${walletName}' }, async disconnect () { window.walletDisconnected = true } }]
+      export function useWallets () {
+        const [wallets, setWallets] = useState(initial)
+        window.switchWalletAccount = () => setWallets([])
+        window.reconnectWallet = () => setWallets([{ address: '${newAddress}', standardWallet: { name: '${walletName}' }, async disconnect () {} }])
+        return { wallets }
+      }
+      export const useSignMessage = () => ({ async signMessage ({ wallet, message }) {
+        window.signedBy = wallet.address
+        const response = await fetch('/test-sign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: wallet.address, message: Array.from(message) }) })
+        const result = await response.json()
+        return { signature: new Uint8Array(result.signature) }
+      } })
       export const toSolanaWalletConnectors = () => []`
-  }))
-  await page.goto('/')
-  await expect(page.getByRole('combobox', { name: 'Selected Solana wallet' })).toBeVisible()
-  await page.getByRole('button', { name: 'Disconnect wallet' }).click()
-  await expect(page.getByRole('button', { name: 'Connect wallet', exact: true })).toBeVisible()
-  await expect(page.getByRole('combobox', { name: 'Selected Solana wallet' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Create space', exact: true })).toBeDisabled()
-  expect(await page.evaluate(() => window.phantomDisconnected && window.privyLoggedOut)).toBe(true)
-  await page.getByRole('button', { name: 'Connect wallet', exact: true }).click()
-  await expect(page.getByRole('combobox', { name: 'Selected Solana wallet' })).toBeVisible()
-})
+    }))
+    await page.goto('/')
+    await expect(page.getByRole('combobox', { name: 'Selected Solana wallet' })).toBeVisible()
+    await page.getByRole('button', { name: 'Disconnect wallet' }).click()
+    await expect(page.getByRole('button', { name: 'Connect wallet', exact: true })).toBeVisible()
+    await expect(page.getByRole('combobox', { name: 'Selected Solana wallet' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Create space', exact: true })).toBeDisabled()
+    expect(await page.evaluate(() => window.walletDisconnected && window.privyLoggedOut)).toBe(true)
+    await page.getByRole('button', { name: 'Connect wallet', exact: true }).click()
+    await expect(page.getByRole('combobox', { name: 'Selected Solana wallet' })).toBeVisible()
+    await page.evaluate(() => window.switchWalletAccount())
+    await expect(page.getByRole('button', { name: 'Connect wallet', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Connect wallet', exact: true }).click()
+    await expect(page.getByRole('combobox', { name: 'Selected Solana wallet' })).toHaveValue(newAddress)
+    await page.goto(`/#/spaces/${space.data.id}/proposals/${proposalId}`)
+    await page.getByRole('radio', { name: 'For', exact: true }).check()
+    await page.getByRole('button', { name: 'Sign & vote', exact: true }).click()
+    await expect(page.getByText('Your vote is recorded.')).toBeVisible()
+    expect(await page.evaluate(() => window.signedBy)).toBe(newAddress)
+    expect(submitted).toBeDefined()
+  })
+}
 const proposalId = 'bafy' + 'a'.repeat(60)
 const space = {
   data: { id: 'fluxbot', name: 'FluxBot community', description: 'A shared space for the FluxBot community to decide what comes next.', token: mint },
