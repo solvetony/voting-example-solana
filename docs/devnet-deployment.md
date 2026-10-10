@@ -75,6 +75,13 @@ Never put API/storage keys into frontend variables. Restart the backend and
 deploy the frontend build. `/voting-api/status` identifies devnet, the website
 displays a devnet notice, and token/block/transaction links select devnet.
 
+Keep Phantom or Solflare on devnet when connecting. The frontend reads the
+network from `/voting-api/status`, connects the wallet, obtains a Privy SIWS
+nonce, and signs a message with `Chain ID: devnet` before submitting it to Privy.
+This avoids the SDK's default mainnet login message. Mainnet deployments retain
+the existing login flow. Browser tests mock Privy and wallet extensions; acceptance
+by the live Privy service and an actual extension still require manual verification.
+
 The client uses `/api/v1/solana/devnet/slot`, `token-info/{mint}`,
 `slot-timestamp/{slot}`, and `token-balance/{wallet}/{mint}/{slot}` with the existing
 server-side bearer key. The original mainnet endpoint paths remain unchanged.

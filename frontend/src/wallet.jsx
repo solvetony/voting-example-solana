@@ -1,8 +1,9 @@
 import { createContext } from 'preact'
-import { useContext, useState } from 'preact/hooks'
-import { PrivyProvider, usePrivy } from '@privy-io/react-auth'
+import { useContext, useRef, useState } from 'preact/hooks'
+import { PrivyProvider, useConnectWallet, useLoginWithSiws, usePrivy } from '@privy-io/react-auth'
 import { toSolanaWalletConnectors, useSignMessage, useSignTransaction, useWallets } from '@privy-io/react-auth/solana'
 import { APP, signingText, signatureHex } from './signing.js'
+import { request } from './api.js'
 
 const WalletContext = createContext({ ready: false, wallets: [], address: '', login () {}, logout () {} })
 export const useWallet = () => useContext(WalletContext)
@@ -14,12 +15,33 @@ function WalletBridge ({ children }) {
   const { signTransaction: signSolanaTransaction } = useSignTransaction()
   const [selected, setSelected] = useState('')
   const [error, setError] = useState('')
+  const network = useRef('mainnet-beta')
+  const { generateSiwsMessage, loginWithSiws } = useLoginWithSiws()
+  const { connectWallet: connectForLogin } = useConnectWallet({
+    async onSuccess ({ wallet }) {
+      if (authenticated || network.current !== 'devnet') return
+      try {
+        if (wallet.type !== 'solana') throw new Error('Connect a Solana wallet')
+        const message = (await generateSiwsMessage({ address: wallet.address })).replace(/^Chain ID: mainnet$/m, 'Chain ID: devnet')
+        if (!/^Chain ID: devnet$/m.test(message)) throw new Error('Could not prepare devnet login message')
+        const { signature } = await wallet.provider.signMessage({ message: new TextEncoder().encode(message) })
+        await loginWithSiws({ message, signature: btoa(String.fromCharCode(...signature)), walletClientType: wallet.walletClientType, connectorType: wallet.connectorType })
+        setSelected(wallet.address)
+      } catch (error) { setError(error.message || 'Wallet login failed') }
+    },
+    onError (error) { setError(String(error)) }
+  })
   const wallet = authenticated ? wallets.find(wallet => wallet.address === selected) || wallets[0] : undefined
 
-  function login () {
+  async function login () {
     setError('')
-    if (authenticated) connectWallet()
-    else privyLogin()
+    if (authenticated) return connectWallet()
+    try {
+      const status = await request('/voting-api/status', null, AbortSignal.timeout(15000))
+      network.current = status.solanaNetwork
+      if (status.solanaNetwork === 'devnet') connectForLogin()
+      else privyLogin()
+    } catch (error) { setError(error.message || 'Wallet login failed') }
   }
 
   async function logout () {

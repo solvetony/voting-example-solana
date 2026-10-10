@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { generateKeyPairSync, sign } from 'node:crypto'
+import { generateKeyPairSync, sign, verify } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { transformWithOxc } from 'vite'
 import { ConnectedStandardSolanaWallet } from '@privy-io/js-sdk-core'
@@ -89,11 +89,11 @@ for (const role of ['issuer', 'investor']) {
   })
 }
 
-for (const walletName of ['Phantom', 'Solflare']) {
-  test(`${walletName} account changes reconnect and produce a valid vote signature`, async ({ page }) => {
+for (const [walletName, network] of [['Phantom', 'mainnet-beta'], ['Solflare', 'mainnet-beta'], ['Phantom', 'devnet'], ['Solflare', 'devnet']]) {
+  test(`${walletName} ${network} account changes reconnect and produce a valid vote signature`, async ({ page }) => {
     const { publicKey, privateKey } = generateKeyPairSync('ed25519')
     const newAddress = bs58.encode(publicKey.export({ type: 'spki', format: 'der' }).subarray(-32))
-    const account = { address: newAddress, publicKey: bs58.decode(newAddress), chains: ['solana:mainnet'], features: ['solana:signMessage'] }
+    const account = { address: newAddress, publicKey: bs58.decode(newAddress), chains: [network === 'devnet' ? 'solana:devnet' : 'solana:mainnet'], features: ['solana:signMessage'] }
     const connected = new ConnectedStandardSolanaWallet({
       account,
       wallet: {
@@ -116,6 +116,17 @@ for (const walletName of ['Phantom', 'Solflare']) {
       const signed = await connected.signMessage({ message: new Uint8Array(message) })
       await route.fulfill({ json: { signature: Array.from(signed.signature) } })
     })
+    let loginMessage
+    await page.route('**/voting-api/status', route => route.fulfill({ json: { storageReady: true, indexReady: true, solanaNetwork: network } }))
+    await page.route('**/test-login', async route => {
+      const { message, signature } = route.request().postDataJSON()
+      expect(message).toContain('Chain ID: devnet')
+      expect(message).toContain('Nonce: test-nonce')
+      expect(message).toContain(newAddress)
+      expect(verify(null, Buffer.from(message), publicKey, Buffer.from(signature, 'base64'))).toBe(true)
+      loginMessage = message
+      await route.fulfill({ json: { success: true } })
+    })
     let submitted
     await page.route('**/voting-api/**/votes', async route => {
       submitted = route.request().postDataJSON()
@@ -125,25 +136,43 @@ for (const walletName of ['Phantom', 'Solflare']) {
       await route.fulfill({ json: { ...submitted, cid: proposalId } })
     })
     const main = await page.request.get('/src/main.jsx').then(response => response.text())
+    const dependencyVersion = main.match(/preact\.js\?v=([^"']+)/)?.[1]
+    const versionModules = code => code.replace(/(\/node_modules\/\.vite\/deps\/preact(?:_hooks)?\.js)/g, `$1?v=${dependencyVersion}`)
     const wallet = await readFile(new URL('../src/wallet.jsx', import.meta.url), 'utf8')
     const transformed = await transformWithOxc(wallet.replace('import.meta.env.VITE_PRIVY_APP_ID', "'test-app'"), 'wallet.jsx', { jsx: { runtime: 'classic', pragma: 'h', pragmaFrag: 'Fragment' } })
-    const walletModule = "import { h, Fragment } from '/node_modules/.vite/deps/preact.js'\n" + transformed.code.replaceAll('"preact"', '"/node_modules/.vite/deps/preact.js"').replaceAll('"preact/hooks"', '"/node_modules/.vite/deps/preact_hooks.js"').replaceAll('"@privy-io/react-auth"', '"/test-privy.jsx"').replaceAll('"@privy-io/react-auth/solana"', '"/test-solana.jsx"')
+    const walletModule = "import { h, Fragment } from '/node_modules/.vite/deps/preact.js'\n" + transformed.code.replaceAll('"preact"', '"/node_modules/.vite/deps/preact.js"').replaceAll('"preact/hooks"', '"/node_modules/.vite/deps/preact_hooks.js"').replaceAll('"@privy-io/react-auth"', '"/test-privy.jsx"').replaceAll('"@privy-io/react-auth/solana"', '"/test-solana.jsx"').replaceAll('"bs58"', '"/node_modules/.vite/deps/bs58.js"')
     await page.route('**/src/main.jsx', route => route.fulfill({ contentType: 'text/javascript', body: main.replace(/const Provider = .*;/, 'const Provider = WalletProvider;') }))
-    await page.route('**/src/wallet.jsx', route => route.fulfill({ contentType: 'text/javascript', body: walletModule }))
+    await page.route('**/src/wallet.jsx', route => route.fulfill({ contentType: 'text/javascript', body: versionModules(walletModule) }))
     await page.route('**/test-privy.jsx', route => route.fulfill({
       contentType: 'text/javascript',
-      body: `import { createContext, h } from '/node_modules/.vite/deps/preact.js'
+      body: versionModules(`import { createContext, h } from '/node_modules/.vite/deps/preact.js'
       import { useContext, useState } from '/node_modules/.vite/deps/preact_hooks.js'
       const context = createContext({})
       export const usePrivy = () => useContext(context)
+      export function useConnectWallet (callbacks) {
+        return { async connectWallet () {
+          window.reconnectWallet()
+          await callbacks.onSuccess({ wallet: { address: '${newAddress}', type: 'solana', walletClientType: '${walletName.toLowerCase()}', connectorType: 'solana_adapter', provider: { async signMessage ({ message }) {
+            const response = await fetch('/test-sign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: '${newAddress}', message: Array.from(message) }) })
+            return { signature: new Uint8Array((await response.json()).signature) }
+          } } } })
+        } }
+      }
+      export function useLoginWithSiws () {
+        const value = useContext(context)
+        return { async generateSiwsMessage ({ address }) { return address + '\\nChain ID: mainnet\\nNonce: test-nonce' }, async loginWithSiws (body) {
+          await fetch('/test-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+          value.authenticate()
+        } }
+      }
       export function PrivyProvider ({children}) {
         const [authenticated, setAuthenticated] = useState(true)
-        return h(context.Provider, {value: { ready: true, authenticated, login () { if (authenticated) throw new Error('Already logged in'); setAuthenticated(true) }, connectWallet () { window.reconnectWallet() }, async logout () { window.privyLoggedOut = true; setAuthenticated(false) } }}, children)
-      }`
+        return h(context.Provider, {value: { ready: true, authenticated, authenticate () { setAuthenticated(true) }, login () { if (authenticated) throw new Error('Already logged in'); setAuthenticated(true) }, connectWallet () { window.reconnectWallet() }, async logout () { window.privyLoggedOut = true; setAuthenticated(false) } }}, children)
+      }`)
     }))
     await page.route('**/test-solana.jsx', route => route.fulfill({
       contentType: 'text/javascript',
-      body: `import { useState } from '/node_modules/.vite/deps/preact_hooks.js'
+      body: versionModules(`import { useState } from '/node_modules/.vite/deps/preact_hooks.js'
       const initial = [{ address: '${mint}', standardWallet: { name: '${walletName}' }, async disconnect () { window.walletDisconnected = true } }]
       export function useWallets () {
         const [wallets, setWallets] = useState(initial)
@@ -158,7 +187,7 @@ for (const walletName of ['Phantom', 'Solflare']) {
         return { signature: new Uint8Array(result.signature) }
       } })
         export const useSignTransaction = () => ({})
-      export const toSolanaWalletConnectors = () => []`
+      export const toSolanaWalletConnectors = () => []`)
     }))
     await page.goto('/')
     await expect(page.getByRole('combobox', { name: 'Selected Solana wallet' })).toBeVisible()
@@ -179,6 +208,8 @@ for (const walletName of ['Phantom', 'Solflare']) {
     await expect(page.getByText('Your vote is recorded.')).toBeVisible()
     expect(await page.evaluate(() => window.signedBy)).toBe(newAddress)
     expect(submitted).toBeDefined()
+    if (network === 'devnet') expect(loginMessage).toBeDefined()
+    else expect(loginMessage).toBeUndefined()
   })
 }
 const proposalId = 'bafy' + 'a'.repeat(60)
