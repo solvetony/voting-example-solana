@@ -18,7 +18,7 @@ function wallet () {
   }
 }
 
-async function fixture (t) {
+async function fixture (t, indexNetwork = 'mainnet-beta') {
   const owner = wallet()
   const voter = wallet()
   const token = wallet().address
@@ -41,6 +41,7 @@ async function fixture (t) {
     }
   }
   const app = await buildApp({
+    indexNetwork,
     storage,
     origin: 'http://localhost:5173',
     query: async path => {
@@ -108,25 +109,27 @@ test('only the owner creates immutable proposals with valid historical snapshots
   assert.equal((await f.app.inject('/voting-api/spaces/example-space/proposals')).json().items.length, 1)
 })
 
-test('votes use server-verified snapshot balance, ignore client weight, and tally exact integers', async t => {
-  const f = await fixture(t)
-  await f.createSpace()
-  const proposal = (await f.createProposal()).json()
-  const url = `/voting-api/spaces/example-space/proposals/${proposal.cid}/votes`
-  const vote = f.voteEnvelope(proposal.cid, { weightRaw: '99999999999999999999999999999999' })
-  const response = await f.post(url, vote)
-  assert.equal(response.statusCode, 200)
-  assert.equal(response.json().weightRaw, '900719925474099300000')
-  assert.ok(f.queries.includes(`token-balance/${f.voter.address}/${f.spaceEnvelope.data.token}/99`))
-  const result = (await f.app.inject(`/voting-api/spaces/example-space/proposals/${proposal.cid}`)).json()
-  assert.equal(result.voteCount, 1)
-  assert.equal(result.results[0].weightRaw, '900719925474099300000')
-  assert.equal(result.results[0].weight, '9007199254740993')
-  assert.equal((await f.post(url, vote)).statusCode, 409)
-  assert.equal(f.pins.at(-1).data.voterNetwork, 'solana')
-  assert.equal(f.pins.at(-1).signature.length, 128)
-  assert.equal((await f.app.inject(url)).json().items.length, 1)
-})
+for (const network of ['mainnet-beta', 'devnet']) {
+  test(`${network} votes use server-verified snapshot balance, ignore client weight, and tally exact integers`, async t => {
+    const f = await fixture(t, network)
+    await f.createSpace()
+    const proposal = (await f.createProposal()).json()
+    const url = `/voting-api/spaces/example-space/proposals/${proposal.cid}/votes`
+    const vote = f.voteEnvelope(proposal.cid, { weightRaw: '99999999999999999999999999999999' })
+    const response = await f.post(url, vote)
+    assert.equal(response.statusCode, 200)
+    assert.equal(response.json().weightRaw, '900719925474099300000')
+    assert.ok(f.queries.includes(`token-balance/${f.voter.address}/${f.spaceEnvelope.data.token}/99`))
+    const result = (await f.app.inject(`/voting-api/spaces/example-space/proposals/${proposal.cid}`)).json()
+    assert.equal(result.voteCount, 1)
+    assert.equal(result.results[0].weightRaw, '900719925474099300000')
+    assert.equal(result.results[0].weight, '9007199254740993')
+    assert.equal((await f.post(url, vote)).statusCode, 409)
+    assert.equal(f.pins.at(-1).data.voterNetwork, 'solana')
+    assert.equal(f.pins.at(-1).signature.length, 128)
+    assert.equal((await f.app.inject(url)).json().items.length, 1)
+  })
+}
 
 test('conditional storage writes stop concurrent double votes', async t => {
   const f = await fixture(t)

@@ -2,8 +2,19 @@
 
 A small Preact + StandardJS voting example, with lucide-preact icons and
 Privy Solana-wallet login. It uses Solana Index for token information,
-current slots, and historical balances. There is no voting database or
-local Solana RPC/indexer.
+current slots, and historical balances. Voting remains signed off-chain,
+without a voting database or custom indexer.
+
+The **Bonds** section extends this application for the KASE × Superteam
+Kazakhstan challenge: historical coupon payments, escrow-based maturity
+redemption, and immutable voting-result commitments. Token-2022 KDB26
+bonds and DEMOUSD are demonstration tokens. DEMOUSD is not fiat or a
+regulated stablecoin. Contracts are isolated in [`contracts/`](contracts/README.md).
+
+See the [architecture](docs/architecture.md), [reproducible demo](docs/demo-script.md),
+[security and trust](docs/security-and-trust.md), and
+[implementation status](docs/implementation-status.md).
+The hackathon target is devnet; follow [devnet deployment](docs/devnet-deployment.md).
 
 ## Run
 
@@ -72,6 +83,17 @@ copies when changing the protocol.
   `4EVERLAND`. Its `HeadObject` response must contain `ipfs-hash` metadata.
 - `IPFS_ENDPOINT`: public receipt gateway, defaults to
   `https://ipfs.4everland.io/ipfs/`.
+- `BOND_RPC_URL`, `BOND_PROGRAM_ID`, `BOND_NETWORK`: optional confirmed
+  Solana RPC, deployed Anchor program, and `localnet`, `devnet`, or
+  `mainnet-beta`. Omit these to run the original voting application alone.
+  The hackathon configuration uses `devnet`. Local tests explicitly inject
+  historical fixtures.
+- `SOLANA_INDEX_NETWORK`: `devnet` or `mainnet-beta`; defaults to devnet when
+  `BOND_NETWORK=devnet`, otherwise mainnet-beta. Devnet queries use Solana
+  Index `/api/v1/solana/devnet/`; mainnet paths are unchanged. Public bond
+  settlement and historical queries must use the same network. Devnet S3
+  records and IPFS upload objects use a separate `devnet/` prefix, preserving
+  existing mainnet records without mixing balances, slots or votes.
 
 Do not put storage secrets or the operator's API key in `VITE_*` variables.
 All token, current-slot, and voting-power lookups use the backend's
@@ -140,8 +162,11 @@ operator's quota through the backend.
 S3 storage is the application's read source; IPFS receipts make actions
 independently inspectable but do not guarantee the server cannot omit
 votes. Backend storage administrators remain trusted for availability.
-The server does not custody wallets or keys. There are no on-chain voting
-transactions, fees, transfers, delegation, comments, or ownership editing.
+The server does not custody wallets or keys. Existing votes remain off-chain.
+Bond coupon claims, escrow deposits, principal settlement, and result
+commitments require wallet-signed transactions and SOL for fees. The
+backend prepares and submits transactions, verifies confirmation and the
+exact signed transaction message, and reads the program's state.
 
 ## Checks
 

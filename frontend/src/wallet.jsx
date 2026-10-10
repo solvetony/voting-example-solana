@@ -1,7 +1,7 @@
 import { createContext } from 'preact'
 import { useContext, useState } from 'preact/hooks'
 import { PrivyProvider, usePrivy } from '@privy-io/react-auth'
-import { toSolanaWalletConnectors, useSignMessage, useWallets } from '@privy-io/react-auth/solana'
+import { toSolanaWalletConnectors, useSignMessage, useSignTransaction, useWallets } from '@privy-io/react-auth/solana'
 import { APP, signingText, signatureHex } from './signing.js'
 
 const WalletContext = createContext({ ready: false, wallets: [], address: '', login () {}, logout () {} })
@@ -11,6 +11,7 @@ function WalletBridge ({ children }) {
   const { ready, authenticated, login: privyLogin, connectWallet, logout: privyLogout } = usePrivy()
   const { wallets } = useWallets()
   const { signMessage } = useSignMessage()
+  const { signTransaction: signSolanaTransaction } = useSignTransaction()
   const [selected, setSelected] = useState('')
   const [error, setError] = useState('')
   const wallet = authenticated ? wallets.find(wallet => wallet.address === selected) || wallets[0] : undefined
@@ -37,8 +38,15 @@ function WalletBridge ({ children }) {
     const signed = await signMessage({ message: new TextEncoder().encode(signingText(data)), wallet })
     return { data, address: wallet.address, signature: signatureHex(signed.signature) }
   }
+  async function signTransaction (encoded, network) {
+    if (!wallet || !authenticated) throw new Error('Connect your Solana wallet first')
+    const transaction = Uint8Array.from(atob(encoded), character => character.charCodeAt(0))
+    const chain = network === 'mainnet-beta' ? 'solana:mainnet' : network === 'devnet' ? 'solana:devnet' : undefined
+    const result = await signSolanaTransaction({ transaction, wallet, ...(chain ? { chain } : {}) })
+    return btoa(String.fromCharCode(...result.signedTransaction))
+  }
   return (
-    <WalletContext.Provider value={{ ready, authenticated, wallets, address: wallet?.address || '', error, select: setSelected, login, logout, sign }}>
+    <WalletContext.Provider value={{ ready, authenticated, wallets, address: wallet?.address || '', error, select: setSelected, login, logout, sign, signTransaction }}>
       {children}
     </WalletContext.Provider>
   )

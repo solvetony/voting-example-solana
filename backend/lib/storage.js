@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto'
 import { S3Client, GetObjectCommand, PutObjectCommand, ListObjectsV2Command, HeadObjectCommand } from '@aws-sdk/client-s3'
 import { fail } from './validation.js'
+import { solanaIndexNetwork } from './solana-index.js'
 
 export function createStorage (env = process.env) {
+  const namespace = solanaIndexNetwork(env) === 'devnet' ? 'devnet/' : ''
   const store = new S3Client({
     endpoint: env.S3_ENDPOINT || undefined,
     region: env.S3_REGION || 'us-east-1',
@@ -20,7 +22,7 @@ export function createStorage (env = process.env) {
   async function get (key) {
     configured()
     try {
-      const result = await store.send(new GetObjectCommand({ Bucket: env.S3_BUCKET, Key: key }), { abortSignal: AbortSignal.timeout(10000) })
+      const result = await store.send(new GetObjectCommand({ Bucket: env.S3_BUCKET, Key: namespace + key }), { abortSignal: AbortSignal.timeout(10000) })
       return JSON.parse(await result.Body.transformToString())
     } catch (error) {
       if (error.name === 'NoSuchKey' || error.$metadata?.httpStatusCode === 404) return null
@@ -32,7 +34,7 @@ export function createStorage (env = process.env) {
     try {
       await store.send(new PutObjectCommand({
         Bucket: env.S3_BUCKET,
-        Key: key,
+        Key: namespace + key,
         Body: JSON.stringify(value),
         ContentType: 'application/json',
         IfNoneMatch: '*'
@@ -44,15 +46,15 @@ export function createStorage (env = process.env) {
   }
   async function list (prefix, cursor, limit = 50) {
     configured()
-    const page = await store.send(new ListObjectsV2Command({ Bucket: env.S3_BUCKET, Prefix: prefix, ContinuationToken: cursor, MaxKeys: limit }), { abortSignal: AbortSignal.timeout(10000) })
+    const page = await store.send(new ListObjectsV2Command({ Bucket: env.S3_BUCKET, Prefix: namespace + prefix, ContinuationToken: cursor, MaxKeys: limit }), { abortSignal: AbortSignal.timeout(10000) })
     const items = []
-    for (const object of page.Contents || []) items.push(await get(object.Key))
+    for (const object of page.Contents || []) items.push(await get(object.Key.slice(namespace.length)))
     return { items: items.filter(Boolean), cursor: page.NextContinuationToken || null }
   }
   async function pin (envelope) {
     configured()
     const body = JSON.stringify(envelope)
-    const key = `solana-voting/${createHash('sha256').update(body).digest('hex')}.json`
+    const key = `${namespace}solana-voting/${createHash('sha256').update(body).digest('hex')}.json`
     await ipfs.send(new PutObjectCommand({ Bucket: env.EVERLAND_BUCKET_NAME, Key: key, Body: body, ContentType: 'application/json' }), { abortSignal: AbortSignal.timeout(10000) })
     const head = await ipfs.send(new HeadObjectCommand({ Bucket: env.EVERLAND_BUCKET_NAME, Key: key }), { abortSignal: AbortSignal.timeout(10000) })
     const hash = head.Metadata?.['ipfs-hash']

@@ -4,6 +4,7 @@ import { useWallet } from './wallet.jsx'
 import { request, solanaIndex } from './api.js'
 import { formatAmount, signingText, verifyReceipt } from './signing.js'
 import { useTheme } from './theme.js'
+import Bonds from './bonds.jsx'
 
 function short (value) { return value ? `${value.slice(0, 5)}...${value.slice(-5)}` : '' }
 function date (seconds) { return new Date(seconds * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) }
@@ -27,7 +28,7 @@ function useResource (path, revision = 0) {
 
 function SnapshotTime ({ slot }) {
   const time = useResource(`/voting-api/solana/slot-timestamp/${slot}`)
-  return <div className='snapshot-time'>{time.loading ? <small role='status'>Loading snapshot time…</small> : time.value ? <small>{new Date(time.value.timestamp).toISOString()} · <a href={`https://solscan.io/block/${time.value.timestampSlot}`} target='_blank' rel='noreferrer'>{time.value.resolution === 'previous-block' ? 'Previous block' : 'Block'} #{time.value.timestampSlot.toLocaleString()}</a></small> : <Notice error={time.error} />}</div>
+  return <div className='snapshot-time'>{time.loading ? <small role='status'>Loading snapshot time…</small> : time.value ? <small>{new Date(time.value.timestamp).toISOString()} · <a href={`https://solscan.io/block/${time.value.timestampSlot}${time.value.solanaNetwork === 'devnet' ? '?cluster=devnet' : ''}`} target='_blank' rel='noreferrer'>{time.value.resolution === 'previous-block' ? 'Previous block' : 'Block'} #{time.value.timestampSlot.toLocaleString()}</a></small> : <Notice error={time.error} />}</div>
 }
 
 function Notice ({ error }) { return error ? <p className='notice' role='alert'><AlertTriangle size={16} aria-hidden='true' /><span>{error}</span></p> : null }
@@ -111,7 +112,7 @@ export default function App () {
     <>
       <header className='site-header'>
         <a className='brand' href='#/'><img src='/icon.png' alt='' width='32' height='32' /><span>Solana Vote</span></a>
-        <nav aria-label='Main navigation'><a className='nav-active' href='#/'>Spaces</a><a href='https://solanaindex.top/api-reference' target='_blank' rel='noreferrer'>Solana Index <ExternalLink size={13} /></a></nav>
+        <nav aria-label='Main navigation'><a className={parts[0] !== 'bonds' ? 'nav-active' : ''} href='#/'>Spaces</a><a className={parts[0] === 'bonds' ? 'nav-active' : ''} href='#/bonds'>Bonds</a><a href='https://solanaindex.top/api-reference' target='_blank' rel='noreferrer'>Solana Index <ExternalLink size={13} /></a></nav>
         <div className='header-actions'>
           <button className='icon-button' type='button' onClick={toggleTheme} aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`} title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}>{theme === 'light' ? <Moon size={19} /> : <Sun size={19} />}</button>
           {wallet.address
@@ -120,15 +121,18 @@ export default function App () {
         </div>
       </header>
       <main>
+        {status.value?.solanaNetwork === 'devnet' && <p className='notice'>Devnet demonstration. Tokens and settlement have no real monetary value.</p>}
         <Notice error={wallet.error} />
         {!import.meta.env.VITE_PRIVY_APP_ID && <Notice error='Wallet login is not configured yet.' />}
         {status.value && !status.value.storageReady && <Notice error='Space storage is not configured yet.' />}
         {status.value && !status.value.indexReady && <Notice error='Voting power verification is not configured yet.' />}
-        {proposal && space
-          ? <ProposalPage key={`${space}/${proposal}`} spaceId={space} proposalId={proposal} revision={revision} refresh={refresh} />
-          : space
-            ? <SpacePage spaceId={space} revision={revision} openProposal={() => setDialog('proposal')} />
-            : <SpacesPage revision={revision} openCreate={() => setDialog('space')} />}
+        {parts[0] === 'bonds'
+          ? <Bonds key={parts[1] || 'list'} mint={parts[1]} />
+          : proposal && space
+            ? <ProposalPage key={`${space}/${proposal}`} spaceId={space} proposalId={proposal} revision={revision} refresh={refresh} />
+            : space
+              ? <SpacePage spaceId={space} revision={revision} openProposal={() => setDialog('proposal')} />
+              : <SpacesPage revision={revision} openCreate={() => setDialog('space')} />}
       </main>
       <footer><span>Solana Vote</span><a href='https://solanaindex.top' target='_blank' rel='noreferrer'>Snapshot balances by Solana Index <ArrowUpRight size={13} /></a></footer>
       {dialog === 'space' && <SpaceDialog close={() => setDialog('')} saved={refresh} />}
@@ -198,7 +202,7 @@ function SpacePage ({ spaceId, revision, openProposal }) {
     <>
       <a className='back-link' href='#/'><ArrowLeft size={16} />All spaces</a>
       <div className='page-heading'><div><p className='eyebrow'>{value.tokenInfo.symbol || 'Solana token'}</p><h1>{value.data.name}</h1><p>{value.data.description}</p></div>{wallet.address === value.address && <button className='primary' onClick={openProposal}><Plus size={18} />New proposal</button>}</div>
-      <div className='space-facts'><span><span>Token</span><a href={`https://solscan.io/token/${value.data.token}`} target='_blank' rel='noreferrer'>{short(value.data.token)} <ExternalLink size={13} /></a></span><span><span>Owner</span><code>{short(value.address)}</code></span><span><span>Receipt</span><Receipt record={value} /></span></div>
+      <div className='space-facts'><span><span>Token</span><a href={`https://solscan.io/token/${value.data.token}${value.solanaNetwork === 'devnet' ? '?cluster=devnet' : ''}`} target='_blank' rel='noreferrer'>{short(value.data.token)} <ExternalLink size={13} /></a></span><span><span>Owner</span><code>{short(value.address)}</code></span><span><span>Receipt</span><Receipt record={value} /></span></div>
       <div className='section-heading'><h2>Proposals</h2><span>{items.length} {items.length === 1 ? 'proposal' : 'proposals'}</span></div>
       <Notice error={proposals.error || error} />
       {proposals.loading ? <Loading /> : <section className='proposal-list'>{items.map(proposal => <a className='proposal-row' href={`#/spaces/${spaceId}/proposals/${proposal.cid}`} key={proposal.cid}><div><span className={`tag ${phase(proposal.data).toLowerCase()}`}>{phase(proposal.data)}</span><h3>{proposal.data.title}</h3><p>Snapshot #{proposal.data.snapshotHeights.solana.toLocaleString()} · Ends {date(proposal.data.endDate)}</p></div><ChevronRight size={20} /></a>)}{!items.length && <div className='empty-state'><Vote size={26} /><h2>No proposals yet</h2><p>New proposals will appear here.</p></div>}</section>}

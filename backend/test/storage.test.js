@@ -31,3 +31,27 @@ test('S3 uses conditional immutable writes and 4EVERLAND returns the receipt CID
   missingCid = true
   await assert.rejects(storage.pin(envelope), { statusCode: 502 })
 })
+
+test('devnet S3 reads, writes, paginated lists and IPFS uploads use isolated prefixes', async t => {
+  const commands = []
+  t.mock.method(S3Client.prototype, 'send', async command => {
+    commands.push(command.input)
+    if (command.constructor.name === 'ListObjectsV2Command') return { Contents: [{ Key: 'devnet/spaces/demo.json' }], NextContinuationToken: 'next' }
+    if (command.constructor.name === 'GetObjectCommand') return { Body: { async transformToString () { return '{"data":{"id":"demo"}}' } } }
+    if (command.constructor.name === 'HeadObjectCommand') return { Metadata: { 'ipfs-hash': 'bafy' + 'b'.repeat(60) } }
+    return {}
+  })
+  const storage = createStorage({ SOLANA_INDEX_NETWORK: 'devnet', S3_BUCKET: 'records', S3_ACCESS_KEY: 'test', S3_SECRET_KEY: 'test', EVERLAND_BUCKET_NAME: 'ipfs', EVERLAND_ACCESS_KEY: 'test', EVERLAND_SECRET_KEY: 'test' })
+  await storage.put('spaces/demo.json', {})
+  await storage.get('spaces/demo.json')
+  const page = await storage.list('spaces/', 'previous')
+  assert.equal(page.items[0].data.id, 'demo')
+  assert.equal(page.cursor, 'next')
+  assert.equal(commands[0].Key, 'devnet/spaces/demo.json')
+  assert.equal(commands[1].Key, 'devnet/spaces/demo.json')
+  assert.equal(commands[2].Prefix, 'devnet/spaces/')
+  assert.equal(commands[2].ContinuationToken, 'previous')
+  assert.equal(commands[3].Key, 'devnet/spaces/demo.json')
+  await storage.pin({ data: { id: 'demo' } })
+  assert.match(commands[4].Key, /^devnet\/solana-voting\/[a-f0-9]{64}\.json$/)
+})

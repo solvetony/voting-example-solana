@@ -8,6 +8,87 @@ import { signingText, verifyReceipt } from '../src/signing.js'
 
 const mint = 'FLUXBmPhT3Fd1EDVFdg46YREqHBeNypn1h4EbnTzWERX'
 
+test('devnet is disclosed and token and historical block links use devnet explorers', async ({ page }) => {
+  await page.route('**/voting-api/status', route => route.fulfill({ json: { storageReady: true, indexReady: true, solanaNetwork: 'devnet' } }))
+  await page.route(`**/voting-api/spaces/${space.data.id}`, route => route.fulfill({ json: { ...space, solanaNetwork: 'devnet' } }))
+  await page.route('**/voting-api/solana/slot-timestamp/*', route => route.fulfill({ json: { slot: proposal.data.snapshotHeights.solana, timestamp: '2026-10-10T00:00:00.000Z', timestampSlot: proposal.data.snapshotHeights.solana, resolution: 'exact', solanaNetwork: 'devnet' } }))
+  await page.goto(`/#/spaces/${space.data.id}`)
+  await expect(page.getByText('Devnet demonstration. Tokens and settlement have no real monetary value.')).toBeVisible()
+  await expect(page.locator('.space-facts a').first()).toHaveAttribute('href', `https://solscan.io/token/${mint}?cluster=devnet`)
+  await page.goto(`/#/spaces/${space.data.id}/proposals/${proposalId}`)
+  await expect(page.locator('.snapshot-time a')).toHaveAttribute('href', `https://solscan.io/block/${proposal.data.snapshotHeights.solana}?cluster=devnet`)
+})
+
+for (const role of ['issuer', 'investor']) {
+  test(`Bonds ${role} controls distinguish historical coupons from escrow principal`, async ({ page }, testInfo) => {
+    const issuer = '11111111111111111111111111111111'
+    const address = role === 'issuer' ? issuer : mint
+    let claimed = false
+    let couponFunded = role === 'investor'
+    let submittedOperation
+    const errors = []
+    page.on('pageerror', error => errors.push(error.message))
+    await page.route('**/src/wallet.jsx', route => route.fulfill({
+      contentType: 'text/javascript',
+      body: `import { createContext, h } from '/node_modules/.vite/deps/preact.js'
+        import { useContext } from '/node_modules/.vite/deps/preact_hooks.js'
+        const value = { ready: true, address: '${address}', wallets: [{ address: '${address}' }], select () {}, login () {}, logout () {}, async sign (data) { return { address: '${address}', data } }, async signTransaction (encoded) { window.preparedBondTransaction = encoded; return 'signed-by-wallet' } }
+        const context = createContext(value)
+        export const useWallet = () => useContext(context)
+        export default function Provider ({ children }) { return h(context.Provider, { value }, children) }
+        export const DisconnectedProvider = Provider`
+    }))
+    await page.route('**/voting-api/bonds**', async route => {
+      const path = new URL(route.request().url()).pathname
+      let data
+      if (path.endsWith('/config')) data = { ready: true, network: 'localnet', demoSettlement: true }
+      else if (path.endsWith('/transactions')) {
+        const envelope = route.request().postDataJSON()
+        expect(envelope.address).toBe(address)
+        expect(envelope.data.operation).toBe(role === 'issuer' ? 'fund-coupon' : 'claim-coupon')
+        if (role === 'issuer') expect(envelope.data.args.amount).toBe('750000000')
+        submittedOperation = envelope.data.operation
+        data = { intent: 'intent', transaction: 'unsigned-by-server', network: 'localnet' }
+      } else if (path.endsWith('/submit')) {
+        const envelope = route.request().postDataJSON()
+        expect(envelope.data.transaction).toBe('signed-by-wallet')
+        expect(envelope.data.intent).toBe('intent')
+        if (role === 'issuer') couponFunded = true
+        else claimed = true
+        data = { signature: 'confirmed-demo-signature', operation: submittedOperation }
+      } else if (path.includes('/coupons/')) data = { manifest: { recordSlot: 100, recordTimestamp: '2026-10-09T00:00:00Z', timestampSlot: 99, slotResolution: 'previous-block', totalLiability: '850000000' }, manifestCid: proposalId, manifestUrl: 'https://ipfs.4everland.io/ipfs/' + proposalId, action: { finalized: role === 'investor' }, vaultBalance: couponFunded ? '850000000' : '100000000', entitlement: { quantity: '10', entitlement: '500000000' }, claim: claimed ? { amount: '500000000' } : null }
+      else data = { data: { name: 'Kazakhstan Demo Bond', symbol: 'KDB26' }, bond: { issuer, mint, faceValue: '1000000000', couponBps: 1000, frequency: 2, maturity: Math.floor(Date.now() / 1000) + 3600, network: 'localnet' }, supply: '17', issuanceSealed: true, currentBalance: '9', holders: [{ investor: mint, label: 'A' }], coupons: [{ data: { id: 'coupon-001' } }], votingSpace: null, voteResults: [], transactions: [], position: { locked: '10', redeemed: '0' }, redemption: { cutoff: Math.floor(Date.now() / 1000) + 1800, locked: '17', escrowBalance: '17', redeemed: '0', unredeemed: '17', unlocked: '0', settled: '0', remainingLiability: '17000000000', vaultBalance: '17000000000', finalized: false } }
+      await route.fulfill({ json: data })
+    })
+    await page.goto(`/#/bonds/${mint}`)
+    await expect(page.getByRole('heading', { name: 'Kazakhstan Demo Bond' })).toBeVisible()
+    await expect(page.getByText('Coupon entitlement is determined by historical record-date ownership', { exact: false })).toBeVisible()
+    await expect(page.getByText('Principal entitlement is determined by bonds actually locked in escrow', { exact: false })).toBeVisible()
+    await expect(page.locator('dt').filter({ hasText: 'Your current bond balance' }).locator('+ dd')).toHaveText('9')
+    await expect(page.locator('dt').filter({ hasText: 'Your historical bond quantity' }).locator('+ dd')).toHaveText('10')
+    await expect(page.locator('dt').filter({ hasText: 'Your coupon' }).locator('+ dd')).toHaveText('500 DEMOUSD')
+    await expect(page.locator('dt').filter({ hasText: 'Your unredeemed principal' }).locator('+ dd')).toHaveText('10000 DEMOUSD')
+    await expect(page.getByRole('button', { name: 'Register holder' })).toHaveCount(role === 'issuer' ? 1 : 0)
+    if (role === 'investor') {
+      await page.getByRole('button', { name: 'Claim historical coupon' }).click()
+      await expect(page.getByRole('status').filter({ hasText: 'Confirmed: claim-coupon' })).toBeVisible()
+      expect(await page.evaluate(() => window.preparedBondTransaction)).toBe('unsigned-by-server')
+      await expect(page.getByRole('button', { name: 'Claim historical coupon' })).toBeDisabled()
+    } else {
+      await expect(page.getByRole('button', { name: 'Fund principal liability' })).toBeDisabled()
+      await page.getByRole('button', { name: 'Fund coupon liability' }).click()
+      await expect(page.getByRole('status').filter({ hasText: 'Confirmed: fund-coupon' })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Fund coupon liability' })).toBeDisabled()
+    }
+    for (const theme of ['light', 'dark']) {
+      if (theme === 'dark') await page.getByRole('button', { name: 'Switch to dark mode' }).click()
+      await page.screenshot({ path: testInfo.outputPath(`bonds-${role}-${theme}.png`), fullPage: true })
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    }
+    expect(errors).toEqual([])
+  })
+}
+
 for (const walletName of ['Phantom', 'Solflare']) {
   test(`${walletName} account changes reconnect and produce a valid vote signature`, async ({ page }) => {
     const { publicKey, privateKey } = generateKeyPairSync('ed25519')
@@ -76,6 +157,7 @@ for (const walletName of ['Phantom', 'Solflare']) {
         const result = await response.json()
         return { signature: new Uint8Array(result.signature) }
       } })
+        export const useSignTransaction = () => ({})
       export const toSolanaWalletConnectors = () => []`
     }))
     await page.goto('/')

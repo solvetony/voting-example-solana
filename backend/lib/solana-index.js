@@ -1,9 +1,16 @@
 import { fail } from './validation.js'
 
-export function createSolanaIndex (key = process.env.SOLANA_INDEX_API_KEY) {
+export function solanaIndexNetwork (env = process.env) {
+  const network = env.SOLANA_INDEX_NETWORK || (env.BOND_NETWORK === 'devnet' ? 'devnet' : 'mainnet-beta')
+  if (!['mainnet-beta', 'devnet'].includes(network)) fail('Invalid Solana Index network')
+  return network
+}
+
+export function createSolanaIndex (key = process.env.SOLANA_INDEX_API_KEY, network = solanaIndexNetwork()) {
+  solanaIndexNetwork({ SOLANA_INDEX_NETWORK: network })
   return async function query (path) {
     if (!key) fail('Solana Index API key is not configured', 503)
-    const response = await fetch(`https://solanaindex.top/api/v1/solana/${path}`, {
+    const response = await fetch(`https://solanaindex.top/api/v1/solana/${network === 'devnet' ? 'devnet/' : ''}${path}`, {
       headers: { Authorization: `Bearer ${key}` },
       signal: AbortSignal.timeout(15000),
       redirect: 'error'

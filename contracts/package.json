@@ -1,0 +1,24 @@
+{
+  "name": "kase-bond-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "build": "anchor keys sync && anchor build --no-idl -- --tools-version v1.57 -- --locked && anchor idl build -o ../backend/idl/kase_bond.json",
+    "test": "node --test test/devnet.test.js",
+    "test:chain": "node --test --test-timeout=360000 test/*.test.js",
+    "demo": "node scripts/demo.js",
+    "demo:devnet": "node --env-file-if-exists=../backend/.env scripts/demo.js --devnet",
+    "setup": "node scripts/setup.js",
+    "lint": "standard"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "0.32.1",
+    "@solana/web3.js": "1.98.4",
+    "@solana/spl-token": "0.4.15",
+    "bs58": "^6.0.0"
+  },
+  "devDependencies": { "standard": "^17.1.2" }
+}

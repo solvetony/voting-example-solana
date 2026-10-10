@@ -1,0 +1,19 @@
+[toolchain]
+anchor_version = "0.32.1"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+kase_bond = "887VzhmU4fYt5xgkks5F83eNmjsSFwyVMaTHm72Lmdis"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "npm run test:chain"

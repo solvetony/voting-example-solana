@@ -1,0 +1,14 @@
+{
+  "network": "devnet",
+  "rpc": "https://api.devnet.solana.com",
+  "programId": "887VzhmU4fYt5xgkks5F83eNmjsSFwyVMaTHm72Lmdis",
+  "programdataAddress": "7Ctw42CNP9aLzr183xZ3y6F4x5S5MJQPjeWEeMoNCbxu",
+  "upgradeAuthority": "7iwXno1JbFUWHnBBjG875e8WhbDv2eHkt6GmkNLNjVkm",
+  "slot": 509459931,
+  "signature": "5i25Cqpn9R2kzFQyTMTpWo7xbgP2L5aSWQRpkU71zL3SuDUKQ8hNVoEArj6qpkaDSC1Eyhk5KS5BoSZfKXVKRpoY",
+  "sha256": "47534f01f7e01e5089518a66fa10b22f032c86e64eb0cc73e52917fcc3aa67b6",
+  "binaryBytes": 467104,
+  "rentLamports": "2373767160",
+  "verifiedAt": "2026-10-10T07:07:48.503Z",
+  "verification": "RPC program dump exactly matches the local deployment binary"
+}

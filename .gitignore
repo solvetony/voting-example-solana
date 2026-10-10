@@ -4,3 +4,9 @@ dist/
 playwright-report/
 test-results/
 core.*
+contracts/target/
+contracts/.anchor/
+contracts/.demo/
+contracts/.devnet/
+contracts/test-ledger/
+~/secure/issuer.json

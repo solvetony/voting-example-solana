@@ -14,6 +14,6 @@ export default async function (app) {
     if (await storage.get(`spaces/${data.id}.json`)) fail('Space ID already exists', 409)
     const tokenInfo = await query(`token-info/${data.token}`)
     if (!Number.isInteger(tokenInfo.decimals) || tokenInfo.decimals < 0 || tokenInfo.decimals > 255) fail('Invalid token precision', 502)
-    return save(`spaces/${data.id}.json`, envelope, { tokenInfo })
+    return save(`spaces/${data.id}.json`, envelope, { tokenInfo, solanaNetwork: app.indexNetwork })
   })
 }
