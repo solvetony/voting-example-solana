@@ -5,6 +5,8 @@ and bondholder voting, built for the **KASE × Superteam Kazakhstan challenge**.
 The application identifies eligible investors, calculates their entitlements,
 settles demonstration tokens, and records the outcome on Solana.
 
+**Pitch deck:** [Download PDF](docs/pitch/kase-bond-corporate-actions.pdf)
+
 Kazakhstan Stock Exchange (KASE) supports trading in equities, bonds, foreign
 currencies, derivatives, and money market instruments. This prototype explores
 how blockchain could automate corporate actions for tokenized instruments.
