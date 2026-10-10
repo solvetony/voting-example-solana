@@ -14,7 +14,7 @@ need the newer Rust compiler. The initial download needs network access.
 
 ```sh
 cargo install anchor-cli --version 0.32.1 --locked
-npm --prefix backend ci
+pnpm --dir backend install --frozen-lockfile
 cd contracts
 npm ci
 npm run build

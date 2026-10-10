@@ -1,0 +1,10 @@
+overrides:
+  decode-uri-component: ^0.5.0
+  uuid: ^11.1.0
+  ws: ^8.22.0
+  abitype@1.0.8: 1.2.3
+allowBuilds:
+  '@reown/appkit': false
+  bufferutil: true
+  keccak: true
+  utf-8-validate: true

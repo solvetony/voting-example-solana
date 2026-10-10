@@ -81,11 +81,11 @@ fully retired while it is nonzero. Final coupon claims and principal are separat
 ## Checks
 
 ```sh
-npm --prefix backend run lint
-npm --prefix backend test
-npm --prefix frontend run lint
-npm --prefix frontend run build
-npm --prefix frontend test
+pnpm --dir backend run lint
+pnpm --dir backend test
+pnpm --dir frontend run lint
+pnpm --dir frontend run build
+pnpm --dir frontend test
 npm --prefix contracts run lint
 cargo test --manifest-path contracts/Cargo.toml --lib
 npm --prefix contracts run test:chain

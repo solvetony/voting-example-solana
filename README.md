@@ -18,41 +18,41 @@ The hackathon target is devnet; follow [devnet deployment](docs/devnet-deploymen
 
 ## Run
 
-Use Node 24. Backend and frontend install and deploy independently, with
+Use Node 24 and pnpm 12.6.0. Backend and frontend install and deploy independently, with
 their own package files, lockfiles, and environment configuration. Copy
 each directory's `.env.example` to `.env` and fill the settings below.
 
 ```sh
 cd backend
-npm ci
-npm run dev
+pnpm install
+pnpm run dev
 ```
 
 In another terminal:
 
 ```sh
 cd frontend
-npm ci
-npm run dev
+pnpm install
+pnpm run dev
 ```
 
 Open `http://localhost:5173`. The backend listens on `127.0.0.1:3101`.
 Vite proxies `/voting-api`, including Solana Index lookups, to the backend.
 
 ```sh
-npm --prefix backend run lint
-npm --prefix backend test
-npm --prefix frontend run lint
-npm --prefix frontend test
-npm --prefix frontend run build
-npm --prefix backend start
+pnpm --dir backend run lint
+pnpm --dir backend test
+pnpm --dir frontend run lint
+pnpm --dir frontend test
+pnpm --dir frontend run build
+pnpm --dir backend start
 ```
 
 Deploy `frontend/dist` to your static host. Run the backend separately and
 proxy `/voting-api/*` from the frontend origin to the backend. Other browser
 paths should serve the frontend's `index.html` for SPA navigation. Set
 backend `APP_ORIGIN` to that exact browser origin. `HOST` defaults to loopback.
-The backend never serves frontend assets. `frontend`'s `npm start` is a
+The backend never serves frontend assets. `frontend`'s `pnpm start` is a
 local build preview, not a production hosting service.
 
 ## Backend structure
@@ -170,7 +170,7 @@ exact signed transaction message, and reads the program's state.
 
 ## Checks
 
-`npm --prefix backend test` covers signature compatibility, tampering, timestamp expiry,
+`pnpm --dir backend test` covers signature compatibility, tampering, timestamp expiry,
 owner restrictions, snapshots, exact tallies, duplicate/concurrent votes,
 closed voting, zero balances, upstream failures, and input/origin limits.
 Tests use mocked S3/IPFS and Solana Index, without spending requests or
@@ -181,7 +181,7 @@ Desktop/mobile browser checks use mocked read responses:
 ```sh
 cd frontend
 npx playwright install chromium
-npm run test:browser
+pnpm run test:browser
 ```
 
 The Privy React SDK runs through Preact's compatibility layer. References:

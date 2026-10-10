@@ -44,7 +44,7 @@ devnet wallet. Do not use mainnet funds or mainnet transfer commands.
 From the repository root:
 
 ```sh
-npm --prefix backend ci
+pnpm --dir backend install --frozen-lockfile
 cd contracts
 npm ci
 npm run build
