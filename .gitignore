@@ -7,6 +7,12 @@ core.*
 contracts/target/
 contracts/.anchor/
 contracts/.demo/
-contracts/.devnet/
+contracts/.devnet/*
+!contracts/.devnet/config.json
+!contracts/.devnet/issuer.json
+!contracts/.devnet/investor-1.json
+!contracts/.devnet/investor-2.json
+!contracts/.devnet/investor-3.json
+contracts/.devnet-*/
 contracts/test-ledger/
 ~/secure/issuer.json

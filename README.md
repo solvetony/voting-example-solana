@@ -1,20 +1,268 @@
-# Solana Vote
+# KASE Bond Corporate Actions on Solana
 
-A small Preact + StandardJS voting example, with lucide-preact icons and
-Privy Solana-wallet login. It uses Solana Index for token information,
-current slots, and historical balances. Voting remains signed off-chain,
-without a voting database or custom indexer.
+A prototype for automating tokenized bond coupon payments, maturity redemption,
+and bondholder voting, built for the **KASE × Superteam Kazakhstan challenge**.
+The application identifies eligible investors, calculates their entitlements,
+settles demonstration tokens, and records the outcome on Solana.
 
-The **Bonds** section extends this application for the KASE × Superteam
-Kazakhstan challenge: historical coupon payments, escrow-based maturity
-redemption, and immutable voting-result commitments. Token-2022 KDB26
-bonds and DEMOUSD are demonstration tokens. DEMOUSD is not fiat or a
-regulated stablecoin. Contracts are isolated in [`contracts/`](contracts/README.md).
+Kazakhstan Stock Exchange (KASE) supports trading in equities, bonds, foreign
+currencies, derivatives, and money market instruments. This prototype explores
+how blockchain could automate corporate actions for tokenized instruments.
 
-See the [architecture](docs/architecture.md), [reproducible demo](docs/demo-script.md),
-[security and trust](docs/security-and-trust.md), and
-[implementation status](docs/implementation-status.md).
-The hackathon target is devnet; follow [devnet deployment](docs/devnet-deployment.md).
+## What the prototype does
+
+| Corporate action | Who is eligible? | Settlement and on-chain record |
+| --- | --- | --- |
+| Coupon payment | Investors who held bonds at a historical record-date slot, queried through Solana Index | A committed snapshot authorizes DEMOUSD payments; claims are recorded on Solana and cannot be repeated. |
+| Maturity redemption | Investors who deposited bonds into program-controlled escrow before the cutoff | Principal payment and bond burning happen atomically; redeemed positions are recorded on Solana. |
+| Bondholder voting | Investors with bond ownership at the proposal's historical snapshot | Signed votes are weighted and counted off-chain; the issuer commits the final result hash on Solana. |
+
+The demo instrument is **KDB26**, a Token-2022 bond with a face value of
+**1,000 DEMOUSD**, a **10% annual coupon**, and **two coupon payments per year**.
+An investor holding 10 bonds at the record date is eligible for a **500 DEMOUSD
+coupon**. Locking those 10 bonds in escrow entitles that investor to **10,000
+DEMOUSD principal** at maturity. The final coupon is handled separately.
+
+**DEMOUSD is a mock token, not fiat or a regulated stablecoin.** The hosted
+prototype uses devnet. Local tests mock historical queries and external storage;
+see [implementation status](docs/implementation-status.md) for the distinction
+between local verification and public-network integration.
+
+The project extends the existing voting application. It reuses Privy wallet
+login, signed messages, historical Solana Index balances, and S3/IPFS evidence.
+A single Anchor program enforces coupon claims, escrow custody, and redemption.
+The backend uses Fastify and the frontend uses Preact; no new database or indexer
+is required. Contracts live in [`contracts/`](contracts/README.md).
+
+Start with the reviewer guides below. For technical details, read the
+[architecture](docs/architecture.md), [demo sequence](docs/demo-script.md),
+[security and trust assumptions](docs/security-and-trust.md), or
+[devnet deployment instructions](docs/devnet-deployment.md).
+
+## Reviewer guide: live devnet website
+
+Open **https://kase-voting-example.solanaindex.top/**. No backend, API key,
+Privy configuration, or contract deployment is needed to use this hosted demo.
+Use Phantom or Solflare with **Devnet** selected. DEMOUSD is a mock settlement
+asset; all addresses below are devnet demo addresses.
+
+### 1. Get the demo wallets and private keys
+
+Clone the repository and install the contracts dependencies (Node 24):
+
+```sh
+git clone https://github.com/solvetony/voting-example-solana.git
+cd voting-example-solana/contracts
+npm ci
+```
+
+The intentionally public demo keypairs are linked below. Never use these wallets
+on mainnet, deposit real assets, or reuse them for personal accounts. Anyone can
+use them, consume their demo funds, or settle their positions. The issuer is also
+the recorded program upgrade authority, so publishing its key exposes control of
+the demo program as well as its wallet. This is a shared, mutable demonstration.
+
+| Role | Keypair | Wallet address | Initial bonds | Coupon | Principal |
+| --- | --- | --- | ---: | ---: | ---: |
+| Issuer | [issuer.json](contracts/.devnet/issuer.json) | `7iwXno1JbFUWHnBBjG875e8WhbDv2eHkt6GmkNLNjVkm` | 0 | n/a | n/a |
+| Investor A | [investor-1.json](contracts/.devnet/investor-1.json) | `GJVZamtUgpacvJzei5EKFjRNgpixghhN54o5rsmBx2ry` | 10 | 500 DEMOUSD | 10,000 DEMOUSD |
+| Investor B | [investor-2.json](contracts/.devnet/investor-2.json) | `BAmKDwU4tFmmaxicuW6yMb1aPR4xdgBE9nrZ8t6pTmPR` | 5 | 250 DEMOUSD | 5,000 DEMOUSD |
+| Investor C | [investor-3.json](contracts/.devnet/investor-3.json) | `CXttYuTve1oQNWA9sU43vUoBCxBJjgDGxm8mHVqjiZpJ` | 2 | 100 DEMOUSD | 2,000 DEMOUSD |
+
+These are initial allocations, not a promise of current balances. From the
+`contracts/` directory, run the matching one-liner to print the Base58 private
+key accepted by wallet import. Run these locally, not in a shared terminal:
+
+```sh
+node --input-type=module -e 'import fs from "node:fs"; import bs58 from "bs58"; console.log(bs58.encode(Uint8Array.from(JSON.parse(fs.readFileSync(".devnet/issuer.json", "utf8")))))'
+node --input-type=module -e 'import fs from "node:fs"; import bs58 from "bs58"; console.log(bs58.encode(Uint8Array.from(JSON.parse(fs.readFileSync(".devnet/investor-1.json", "utf8")))))'
+node --input-type=module -e 'import fs from "node:fs"; import bs58 from "bs58"; console.log(bs58.encode(Uint8Array.from(JSON.parse(fs.readFileSync(".devnet/investor-2.json", "utf8")))))'
+node --input-type=module -e 'import fs from "node:fs"; import bs58 from "bs58"; console.log(bs58.encode(Uint8Array.from(JSON.parse(fs.readFileSync(".devnet/investor-3.json", "utf8")))))'
+```
+
+1. In Phantom, open **Add / Connect Wallet**, choose **Import Private Key**,
+   select Solana if asked, and paste the printed key. Name the accounts Issuer,
+   Investor A, Investor B, and Investor C. Use Solflare's private-key import if
+   testing with Solflare. These generated keypairs do not have a recovery phrase.
+2. Enable test networks in the wallet settings and select **Devnet**.
+3. Select Investor A, open the website, connect the wallet, and approve login.
+   Check that the website address matches the table before signing an action.
+4. When changing accounts, disconnect the website, select the next wallet account,
+   and reconnect. Import `.devnet` keys, not the separate local-validator `.demo`
+   keys. Each account needs devnet SOL for transaction fees and account rent;
+   manually top it up if necessary.
+
+### 2. Addresses to use in the frontend
+
+| Field | Value |
+| --- | --- |
+| Network | `devnet` |
+| Bond mint / token when creating a space | `BbAHLdrw1TY7j3LfFJwjoBRiV8dm7UgnqkHETZmv1SEr` |
+| DEMOUSD settlement mint | `BeKDLxPtE5ZKNXFjZQfT2D3J8pGgo8EWXEZNq1n2L6gt` |
+| Bond program | `887VzhmU4fYt5xgkks5F83eNmjsSFwyVMaTHm72Lmdis` |
+
+Public setup metadata is in [config.json](contracts/.devnet/config.json).
+The bond has zero decimals, DEMOUSD has six, and one bond has a face value of
+1,000 DEMOUSD. The configured maturity is immutable; check the date shown in
+**Bonds**. Existing claims, votes, and redemption cannot be reset. If the escrow
+cutoff has passed or bonds are already burned, use the fresh setup below.
+
+### 3. Test coupons, voting, and principal in order
+
+1. Open **Bonds** and the KDB26 bond. If it is absent, connect the **issuer**,
+   expand **Register an already initialized bond**, enter the bond mint above,
+   name `Kazakhstan Demo Bond 2026`, symbol `KDB26`, and select **Register bond**.
+   Setup already initialized the contract; do not initialize this mint again.
+   Investor wallets cannot perform issuer actions.
+2. As issuer, use **Register holder** for A, B, and C from the table, unless
+   already registered. All record-date holders must be included.
+3. Obtain a finalized devnet record slot with the Solana CLI:
+
+   ```sh
+   solana slot --url https://api.devnet.solana.com --commitment finalized
+   ```
+
+   Use a slot after distribution, before escrow deposits or burns. Wait for
+   Solana Index history availability; a failed historical query must be resolved
+   before proceeding. An incomplete registry cannot finalize a snapshot.
+4. Under **Coupon payments**, use an unused coupon ID such as `coupon-review-001`
+   and that slot. Select **Generate historical snapshot**. With the original
+   distribution, total liability must be **850 DEMOUSD**. Then select
+   **Initialize coupon vault**, **Fund coupon liability**, and
+   **Finalize coupon snapshot**, approving and confirming each transaction.
+   Use an existing finalized coupon when available instead of funding it again.
+5. Connect A, B, and C in turn. Select the coupon and use **Claim historical
+   coupon**. Expected payouts for the original snapshot are **500 / 250 / 100
+   DEMOUSD**. Paid claims cannot be claimed twice. Historical ownership controls
+   entitlement even after a later transfer. An optional transfer demonstration
+   must return bonds to their original holders before expecting 10/5/2 deposits.
+6. As issuer, under **Bondholder voting**, create a unique space ID if none is
+   bound. The bond mint is used automatically. For the general **Create space**
+   page, use the **bond mint**, not DEMOUSD, as its token. Create a bond amendment
+   proposal with a finalized snapshot slot and a future voting end time.
+7. Open the voting space and cast A/B/C votes using **Approve / Reject / Abstain**.
+   At the original 10/5/2 snapshot, weights must be **10 / 5 / 2**. Inspect signed
+   receipt validation and IPFS evidence. After voting ends, reconnect the issuer,
+   select the closed proposal in the bond page, and submit the result commitment.
+   The chain stores the result hash; it does not independently verify the tally.
+8. As issuer, select a future **Deposit deadline** and **Open redemption escrow**.
+   Leave time to switch all three wallets. As A/B/C, use **Lock bonds in escrow**
+   with **10 / 5 / 2**, or each wallet's actual remaining balance. Deposits cannot
+   be withdrawn. Confirm total locked **17**, escrow balance **17**, and bonds
+   outside escrow **0** for a complete original-distribution demo.
+9. Reconnect the issuer and select **Fund principal liability** (17,000 DEMOUSD
+   for 17 bonds). After both the cutoff and maturity have passed, select
+   **Finalize redemption**. Confirm each transaction before continuing.
+10. As A/B/C, select **Redeem all locked bonds**. The original positions receive
+    **10,000 / 5,000 / 2,000 DEMOUSD**. Burning and payment are atomic. Check the
+    transaction explorer links, **17 redeemed / burned**, **17,000 DEMOUSD
+    principal paid**, zero outstanding supply, and zero remaining liability.
+    Redeemed positions cannot redeem again.
+
+## Reviewer guide: generate a fresh devnet demo
+
+Fresh mints and wallets avoid shared claims and expired deposit windows. You can
+reuse the deployed program without Rust/Anchor or a new program deployment.
+Fresh wallet keys are private by default; only the bundled demo keys above are
+intentionally public. Do not commit replacement keys over the bundled files.
+
+### 1. Install, create an issuer, and manually fund it
+
+Use Node 24 and the Solana CLI. Starting from the repository root:
+
+```sh
+pnpm --dir backend install --frozen-lockfile
+pnpm --dir frontend install --frozen-lockfile
+cd contracts
+npm ci
+export BOND_NETWORK=devnet
+export SOLANA_INDEX_NETWORK=devnet
+export BOND_RPC_URL=https://api.devnet.solana.com
+export BOND_PROGRAM_ID=887VzhmU4fYt5xgkks5F83eNmjsSFwyVMaTHm72Lmdis
+mkdir -p "$HOME/.config/solana"
+export ISSUER_KEYPAIR="$HOME/.config/solana/kase-reviewer-devnet.json"
+solana-keygen new --outfile "$ISSUER_KEYPAIR"
+solana address --keypair "$ISSUER_KEYPAIR"
+```
+
+Top up the displayed address yourself with **devnet SOL**, then check it:
+
+```sh
+solana balance --keypair "$ISSUER_KEYPAIR" --url "$BOND_RPC_URL"
+```
+
+There is no airdrop step. Setup pays mint/account rent and sends 0.02 devnet SOL
+for fees to each investor. Using the existing program avoids its approximately
+2.37 SOL deployment deposit. Keep additional devnet SOL available for account
+creation and subsequent actions.
+
+### 2. Generate the new bond and investor wallets
+
+The checkout already contains the bundled `.devnet` directory. Preserve it before
+setup, which refuses to overwrite existing keys. Run this once; use a different
+backup name if it already exists:
+
+```sh
+mv .devnet .devnet-bundled-backup
+export DEMO_MATURITY_SECONDS=86400
+npm run setup -- --public
+```
+
+This creates fresh bond/DEMOUSD mints, initializes the bond with maturity one day
+away, distributes 10/5/2 bonds, seals bond issuance, and mints 20,000 DEMOUSD to
+the issuer. It saves the new wallets and public metadata under `.devnet/`.
+Do not run the full automated demo before the browser test: it consumes claims,
+votes, and bonds. Save setup output and keep the wallets if setup fails.
+
+Read the fresh addresses, which replace every bundled address in the live table:
+
+```sh
+node --input-type=module -e 'import fs from "node:fs"; console.log(JSON.stringify(JSON.parse(fs.readFileSync(".devnet/config.json", "utf8")), null, 2))'
+solana address --keypair .devnet/issuer.json
+solana address --keypair .devnet/investor-1.json
+solana address --keypair .devnet/investor-2.json
+solana address --keypair .devnet/investor-3.json
+```
+
+Run the four Base58 private-key one-liners from the first guide again. They now
+read the **fresh** `.devnet` files. Import those accounts into Phantom/Solflare,
+select devnet, and verify their addresses match your new configuration.
+
+### 3. Test the fresh bond in the browser
+
+On the hosted website, connect your fresh issuer and register the initialized
+bond using the **new bond mint** from `.devnet/config.json`. Register the three
+new investors. Follow the coupon, voting, and redemption sequence above using
+those new wallets/mints and a unique space ID. Your fresh issuer controls this
+bond, but does not control the shared deployed program's upgrade authority.
+With the one-day maturity, principal redemption waits until the next day.
+For a shorter demonstration, choose a smaller `DEMO_MATURITY_SECONDS` before
+setup, allowing enough time to complete snapshots, voting, and deposits.
+
+If you prefer your own frontend/backend, follow **Run** and **Configuration**
+below. Set backend `BOND_NETWORK=devnet`, `SOLANA_INDEX_NETWORK=devnet`,
+`BOND_RPC_URL=https://api.devnet.solana.com`, and the program ID above, alongside
+S3, 4EVERLAND, and Solana Index credentials. Set `APP_ORIGIN=http://localhost:5173`.
+Frontend needs `VITE_PRIVY_APP_ID` and an allowed localhost origin.
+`ISSUER_KEYPAIR` is for CLI scripts only, not the backend service environment.
+
+### 4. Optional: deploy your own program as well
+
+For an independent program, install the Rust/Anchor/Agave tools listed in
+[contracts/README.md](contracts/README.md), then from `contracts/`:
+
+```sh
+npm run build
+export BOND_PROGRAM_ID="$(solana address -k target/deploy/kase_bond-keypair.json)"
+solana program deploy --url "$BOND_RPC_URL" --keypair "$ISSUER_KEYPAIR" --program-id target/deploy/kase_bond-keypair.json target/deploy/kase_bond.so
+solana program show --url "$BOND_RPC_URL" "$BOND_PROGRAM_ID"
+```
+
+Manually fund the issuer for deployment before running this command. Configure
+**your own backend** with the new program ID and generated backend IDL, restart
+it, and use your own frontend. The hosted backend targets the shared program,
+so it cannot prepare transactions for your independent deployment. Perform the
+fresh setup and browser sequence afterward with the new program ID.
 
 ## Run
 

@@ -2,7 +2,8 @@
 
 One Anchor program, separate from the existing web application. Its compiled
 IDL is checked into `backend/idl/kase_bond.json` so deployment does not require
-Rust on the backend host. Build output and all local keys are ignored.
+Rust on the backend host. Build output and local-validator keys are ignored. The bundled devnet demo
+keypairs are intentionally public; see the root [reviewer guide](../README.md#reviewer-guide-live-devnet-website).
 
 ## Tools and build
 
@@ -51,7 +52,7 @@ same flow without the Node test runner. See [demo instructions](../docs/demo-scr
 ## Public deployment
 
 The hackathon target is **devnet**, including live Solana Index devnet history.
-Follow [devnet deployment](../docs/devnet-deployment.md) for free devnet funding,
+Follow [devnet deployment](../docs/devnet-deployment.md) for manual devnet funding,
 program deployment, and the full public-network demo. Mainnet deployment below
 spends real SOL. Always match the RPC and Solana Index networks.
 

@@ -28,16 +28,14 @@ If you need a new dedicated wallet, create it with `solana-keygen new --outfile
 
 ```sh
 solana address --keypair "$ISSUER_KEYPAIR"
-solana airdrop 2 "$(solana address --keypair "$ISSUER_KEYPAIR")" --url devnet
 solana balance --keypair "$ISSUER_KEYPAIR" --url devnet
 ```
 
-Use the CLI airdrop, not a browser faucet. Airdrops may be rate limited; a failed
-request does not fund your wallet. Deployment requires the same storage deposit
-as mainnet, but in free devnet SOL. The previous deployment reported roughly
-2.37 SOL plus fees, so two SOL alone may not cover deployment and demo account
-creation. Obtain additional devnet SOL through permitted CLI requests or a funded
-devnet wallet. Do not use mainnet funds or mainnet transfer commands.
+Manually top up the displayed issuer address with devnet SOL before continuing.
+No airdrop command is required. Deployment requires roughly 2.37 devnet SOL plus
+fees and demo account creation; reusing the existing deployment avoids that
+program deposit. Do not send mainnet assets. For bundled wallets and fresh
+browser testing, follow the root [reviewer guide](../README.md#reviewer-guide-live-devnet-website).
 
 ## 2. Build and deploy
 
@@ -114,7 +112,8 @@ longer when provider or storage latency is high. Voting and deposit windows are
 two minutes each. The program enforces its normal clock conditions.
 
 The issuer transfers 0.02 devnet SOL to each generated investor for fees/rent.
-Private wallets are saved before transactions in ignored `contracts/.devnet/`.
+Wallets are saved before transactions in `contracts/.devnet/`. Only the bundled
+demo wallets are intentionally public; keep newly generated wallets private.
 Successful final reconciliation and actual signatures are saved in
 `.devnet/result.json`, with `mocked: []`. Treat the run as successful only if it
 finishes and verifies 850 DEMOUSD coupon payments, 17,000 DEMOUSD principal,

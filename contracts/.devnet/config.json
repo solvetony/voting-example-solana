@@ -1,0 +1,25 @@
+{
+  "rpc": "https://api.devnet.solana.com",
+  "network": "devnet",
+  "programId": "887VzhmU4fYt5xgkks5F83eNmjsSFwyVMaTHm72Lmdis",
+  "bondMint": "BbAHLdrw1TY7j3LfFJwjoBRiV8dm7UgnqkHETZmv1SEr",
+  "settlementMint": "BeKDLxPtE5ZKNXFjZQfT2D3J8pGgo8EWXEZNq1n2L6gt",
+  "maturity": 1791708908,
+  "investors": [
+    {
+      "label": "A",
+      "address": "GJVZamtUgpacvJzei5EKFjRNgpixghhN54o5rsmBx2ry",
+      "quantity": "10"
+    },
+    {
+      "label": "B",
+      "address": "BAmKDwU4tFmmaxicuW6yMb1aPR4xdgBE9nrZ8t6pTmPR",
+      "quantity": "5"
+    },
+    {
+      "label": "C",
+      "address": "CXttYuTve1oQNWA9sU43vUoBCxBJjgDGxm8mHVqjiZpJ",
+      "quantity": "2"
+    }
+  ]
+}

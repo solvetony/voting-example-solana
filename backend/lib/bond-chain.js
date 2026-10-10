@@ -13,6 +13,21 @@ export function chainJSON (value) {
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, chainJSON(item)]))
   return value
 }
+
+export function matchesBondTransaction (expected, signed) {
+  if (signed.serializeMessage().equals(expected.serializeMessage())) return true
+  const budget = instruction => instruction.programId.equals(ComputeBudgetProgram.programId)
+  const price = instruction => budget(instruction) && instruction.keys.length === 0 && instruction.data.length === 9 && instruction.data[0] === 3
+  const prices = signed.instructions.filter(price)
+  const limits = expected.instructions.filter(instruction => budget(instruction) && instruction.keys.length === 0 && instruction.data.length === 5 && instruction.data[0] === 2)
+  if (prices.length !== 1 || limits.length !== 1 || expected.instructions.some(price)) return false
+  const priceIndex = signed.instructions.indexOf(prices[0])
+  if (signed.instructions.slice(0, priceIndex).some(instruction => !budget(instruction))) return false
+  if (prices[0].data.readBigUInt64LE(1) * BigInt(limits[0].data.readUInt32LE(1)) > 100000n * 1000000n) return false
+  const normalized = Transaction.from(signed.serialize({ requireAllSignatures: false, verifySignatures: false }))
+  normalized.instructions.splice(priceIndex, 1)
+  return normalized.serializeMessage().equals(expected.serializeMessage())
+}
 export function createBondChain (env = process.env) {
   if (!env.BOND_RPC_URL || !env.BOND_PROGRAM_ID) return { ready: false, network: 'unconfigured' }
   const network = env.BOND_NETWORK || 'mainnet-beta'
@@ -140,8 +155,8 @@ export function createBondChain (env = process.env) {
     const response = await connection.getTransaction(signature, { commitment: 'confirmed', maxSupportedTransactionVersion: 0 })
     if (!response) fail('Transaction is not confirmed yet', 409)
     if (!response.meta || response.meta.err) fail('On-chain transaction failed', 409)
-    const expected = Transaction.from(Buffer.from(intent.transaction, 'base64')).serializeMessage()
-    if (!Buffer.from(response.transaction.message.serialize()).equals(expected)) fail('Transaction does not match the signed request', 403)
+    const expected = Transaction.from(Buffer.from(intent.transaction, 'base64'))
+    if (response.transaction.message.version !== 'legacy' || !matchesBondTransaction(expected, Transaction.populate(response.transaction.message))) fail('Transaction does not match the signed request', 403)
     return { signature, slot: response.slot, status: await status(intent.mint, intent.signer) }
   }
   async function submit (intent, encoded) {
@@ -149,7 +164,7 @@ export function createBondChain (env = process.env) {
     let transaction
     try { transaction = Transaction.from(Buffer.from(encoded, 'base64')) } catch { fail('Invalid signed transaction') }
     const expected = Transaction.from(Buffer.from(intent.transaction, 'base64'))
-    if (!transaction.serializeMessage().equals(expected.serializeMessage()) || !transaction.verifySignatures()) fail('Signed transaction does not match the prepared request', 403)
+    if (!matchesBondTransaction(expected, transaction) || !transaction.verifySignatures()) fail('Signed transaction does not match the prepared request', 403)
     const signature = await connection.sendRawTransaction(transaction.serialize(), { skipPreflight: false })
     const result = await connection.confirmTransaction({ signature, blockhash: intent.blockhash, lastValidBlockHeight: intent.lastValidBlockHeight }, 'confirmed')
     if (result.value.err) fail('On-chain transaction failed', 409)

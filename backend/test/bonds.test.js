@@ -1,11 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { generateKeyPairSync, sign, createHash } from 'node:crypto'
-import { Keypair, Transaction, SystemProgram } from '@solana/web3.js'
+import { Keypair, Transaction, SystemProgram, ComputeBudgetProgram } from '@solana/web3.js'
 import bs58 from 'bs58'
 import { buildApp } from './helper.js'
 import { APP, signingText } from '../lib/signing.js'
-import { createBondChain } from '../lib/bond-chain.js'
+import { createBondChain, matchesBondTransaction } from '../lib/bond-chain.js'
 import { fail } from '../lib/validation.js'
 
 function wallet () {
@@ -128,4 +128,59 @@ test('devnet deployment rejects a mainnet RPC even when labelled devnet in confi
   await assert.rejects(chain.verifyNetwork(), /does not belong/)
   chain.connection.getGenesisHash = async () => 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG'
   await chain.verifyNetwork()
+})
+
+test('wallet priority fees preserve the exact intent and are capped at 0.0001 SOL', async () => {
+  const signer = Keypair.generate()
+  const recipient = Keypair.generate().publicKey
+  const expected = new Transaction({ feePayer: signer.publicKey, recentBlockhash: Keypair.generate().publicKey.toBase58() }).add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }), SystemProgram.transfer({ fromPubkey: signer.publicKey, toPubkey: recipient, lamports: 1 }))
+  const priced = microLamports => {
+    const transaction = Transaction.from(expected.serialize({ requireAllSignatures: false }))
+    transaction.instructions.unshift(ComputeBudgetProgram.setComputeUnitPrice({ microLamports }))
+    transaction.sign(signer)
+    return transaction
+  }
+  const valid = priced(187500)
+  assert.equal(matchesBondTransaction(expected, valid), true)
+  assert.equal(valid.verifySignatures(), true)
+  assert.equal(matchesBondTransaction(expected, priced(250000)), true)
+  assert.equal(matchesBondTransaction(expected, priced(250001)), false)
+  const altered = instruction => {
+    const transaction = priced(187500)
+    transaction.instructions[2] = instruction
+    transaction.sign(signer)
+    return transaction
+  }
+  assert.equal(matchesBondTransaction(expected, altered(SystemProgram.transfer({ fromPubkey: signer.publicKey, toPubkey: recipient, lamports: 2 }))), false)
+  const changedLimit = priced(187500)
+  changedLimit.instructions[1] = ComputeBudgetProgram.setComputeUnitLimit({ units: 500000 })
+  assert.equal(matchesBondTransaction(expected, changedLimit), false)
+  const duplicate = priced(187500)
+  duplicate.instructions.unshift(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1 }))
+  assert.equal(matchesBondTransaction(expected, duplicate), false)
+  const extra = priced(187500)
+  extra.add(SystemProgram.transfer({ fromPubkey: signer.publicKey, toPubkey: recipient, lamports: 1 }))
+  assert.equal(matchesBondTransaction(expected, extra), false)
+  const changedBlockhash = priced(187500)
+  changedBlockhash.recentBlockhash = Keypair.generate().publicKey.toBase58()
+  assert.equal(matchesBondTransaction(expected, changedBlockhash), false)
+  const chain = createBondChain({ BOND_RPC_URL: 'http://127.0.0.1:8899', BOND_PROGRAM_ID: Keypair.generate().publicKey.toBase58(), BOND_NETWORK: 'localnet' })
+  chain.connection.getTransaction = async () => ({ meta: { err: null }, transaction: { message: valid.compileMessage() }, slot: 1 })
+  chain.program.account.bondConfig.fetchNullable = async () => null
+  const intent = { transaction: expected.serialize({ requireAllSignatures: false }).toString('base64'), mint: recipient.toBase58(), signer: signer.publicKey.toBase58() }
+  await assert.rejects(chain.confirm(intent, bs58.encode(valid.signature)), /On-chain bond is not initialized/)
+  let sent = false
+  chain.connection.sendRawTransaction = async bytes => {
+    sent = true
+    assert.equal(Transaction.from(bytes).serializeMessage().equals(valid.serializeMessage()), true)
+    return bs58.encode(valid.signature)
+  }
+  chain.connection.confirmTransaction = async () => ({ value: { err: null } })
+  await assert.rejects(chain.submit(intent, valid.serialize().toString('base64')), /On-chain bond is not initialized/)
+  assert.equal(sent, true)
+  const unsigned = priced(187500)
+  unsigned.signatures[0].signature = null
+  sent = false
+  await assert.rejects(chain.submit(intent, unsigned.serialize({ requireAllSignatures: false }).toString('base64')), /does not match/)
+  assert.equal(sent, false)
 })
