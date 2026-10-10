@@ -4,6 +4,7 @@ import { PrivyProvider, useConnectWallet, useLoginWithSiws, usePrivy } from '@pr
 import { toSolanaWalletConnectors, useSignMessage, useSignTransaction, useWallets } from '@privy-io/react-auth/solana'
 import { APP, signingText, signatureHex } from './signing.js'
 import { request } from './api.js'
+import { loginSignature, loginTransaction } from './login-transaction.js'
 
 const WalletContext = createContext({ ready: false, wallets: [], address: '', login () {}, logout () {} })
 export const useWallet = () => useContext(WalletContext)
@@ -16,16 +17,16 @@ function WalletBridge ({ children }) {
   const [selected, setSelected] = useState('')
   const [error, setError] = useState('')
   const network = useRef('mainnet-beta')
-  const { generateSiwsMessage, generateSiwsOffchainMessage, loginWithSiws } = useLoginWithSiws()
+  const { generateSiwsMessage, loginWithSiws } = useLoginWithSiws()
   const { connectWallet: connectForLogin } = useConnectWallet({
     async onSuccess ({ wallet }) {
       if (authenticated || network.current !== 'devnet') return
       try {
         if (wallet.type !== 'solana') throw new Error('Connect a Solana wallet')
         const message = await generateSiwsMessage({ address: wallet.address })
-        const bytes = generateSiwsOffchainMessage({ message, address: wallet.address })
-        const { signature } = await wallet.provider.signMessage({ message: bytes })
-        await loginWithSiws({ message, signature: btoa(String.fromCharCode(...signature)), walletClientType: wallet.walletClientType, connectorType: wallet.connectorType, messageType: 'offchain-message' })
+        const transaction = loginTransaction(message, wallet.address)
+        const { signedTransaction } = await wallet.provider.signTransaction({ transaction, chain: 'solana:devnet' })
+        await loginWithSiws({ message: btoa(String.fromCharCode(...signedTransaction)), signature: loginSignature(signedTransaction, wallet.address), walletClientType: wallet.walletClientType, connectorType: wallet.connectorType, messageType: 'transaction' })
         setSelected(wallet.address)
       } catch (error) { setError(error.message || 'Wallet login failed') }
     },

@@ -2,8 +2,9 @@ import { test, expect } from '@playwright/test'
 import { generateKeyPairSync, sign, verify } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { transformWithOxc } from 'vite'
-import { buildSolanaOffchainMessage, ConnectedStandardSolanaWallet } from '@privy-io/js-sdk-core'
+import { ConnectedStandardSolanaWallet } from '@privy-io/js-sdk-core'
 import bs58 from 'bs58'
+import { getCompiledTransactionMessageDecoder, getTransactionDecoder, getTransactionEncoder } from '@solana/kit'
 import { signingText, verifyReceipt } from '../src/signing.js'
 
 const mint = 'FLUXBmPhT3Fd1EDVFdg46YREqHBeNypn1h4EbnTzWERX'
@@ -117,16 +118,26 @@ for (const [walletName, network] of [['Phantom', 'mainnet-beta'], ['Solflare', '
       await route.fulfill({ json: { signature: Array.from(signed.signature) } })
     })
     const originalLoginMessage = `${newAddress}\nChain ID: mainnet\nNonce: test-nonce\nURI: http://127.0.0.1:5173`
-    const offchainBytes = buildSolanaOffchainMessage({ message: originalLoginMessage, signerPublicKey: bs58.decode(newAddress), domain: 'http://127.0.0.1:5173' })
+    await page.route('**/test-sign-transaction', async route => {
+      const { transaction: bytes, chain } = route.request().postDataJSON()
+      expect(chain).toBe('solana:devnet')
+      const transaction = getTransactionDecoder().decode(new Uint8Array(bytes))
+      const signed = { ...transaction, signatures: { ...transaction.signatures, [newAddress]: new Uint8Array(sign(null, transaction.messageBytes, privateKey)) } }
+      await route.fulfill({ json: { signedTransaction: Array.from(getTransactionEncoder().encode(signed)) } })
+    })
     let loginMessage
     await page.route('**/voting-api/status', route => route.fulfill({ json: { storageReady: true, indexReady: true, solanaNetwork: network } }))
     await page.route('**/test-login', async route => {
       const { message, signature, messageType } = route.request().postDataJSON()
-      expect(message).toBe(originalLoginMessage)
-      expect(messageType).toBe('offchain-message')
-      expect(message).toContain('Nonce: test-nonce')
-      expect(message).toContain(newAddress)
-      expect(verify(null, buildSolanaOffchainMessage({ message, signerPublicKey: bs58.decode(newAddress), domain: 'http://127.0.0.1:5173' }), publicKey, Buffer.from(signature, 'base64'))).toBe(true)
+      expect(messageType).toBe('transaction')
+      const transaction = getTransactionDecoder().decode(Buffer.from(message, 'base64'))
+      const compiled = getCompiledTransactionMessageDecoder().decode(transaction.messageBytes)
+      expect(compiled.instructions).toHaveLength(1)
+      expect(compiled.staticAccounts[compiled.instructions[0].programAddressIndex]).toBe('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr')
+      expect(new TextDecoder().decode(compiled.instructions[0].data)).toBe(originalLoginMessage)
+      expect(compiled.lifetimeToken).toBe('GfVcyD5fWFJ6hRm8bsy7CoVPsLSoJhtJKRJYk8T2VVFN')
+      expect(verify(null, transaction.messageBytes, publicKey, Buffer.from(signature, 'base64'))).toBe(true)
+      expect(Buffer.from(transaction.signatures[newAddress])).toEqual(Buffer.from(signature, 'base64'))
       loginMessage = message
       await route.fulfill({ json: { success: true } })
     })
@@ -155,15 +166,15 @@ for (const [walletName, network] of [['Phantom', 'mainnet-beta'], ['Solflare', '
       export function useConnectWallet (callbacks) {
         return { async connectWallet () {
           window.reconnectWallet()
-          await callbacks.onSuccess({ wallet: { address: '${newAddress}', type: 'solana', walletClientType: '${walletName.toLowerCase()}', connectorType: 'solana_adapter', provider: { async signMessage ({ message }) {
-            const response = await fetch('/test-sign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: '${newAddress}', message: Array.from(message) }) })
-            return { signature: new Uint8Array((await response.json()).signature) }
+          await callbacks.onSuccess({ wallet: { address: '${newAddress}', type: 'solana', walletClientType: '${walletName.toLowerCase()}', connectorType: 'solana_adapter', provider: { async signMessage () { throw new Error('Login must not use signMessage') }, async signTransaction ({ transaction, chain }) {
+            const response = await fetch('/test-sign-transaction', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transaction: Array.from(transaction), chain }) })
+            return { signedTransaction: new Uint8Array((await response.json()).signedTransaction) }
           } } } })
         } }
       }
       export function useLoginWithSiws () {
         const value = useContext(context)
-        return { async generateSiwsMessage () { return ${JSON.stringify(originalLoginMessage)} }, generateSiwsOffchainMessage ({ message, address }) { if (message !== ${JSON.stringify(originalLoginMessage)} || address !== '${newAddress}') throw new Error('SIWS message altered'); return new Uint8Array(${JSON.stringify(Array.from(offchainBytes))}) }, async loginWithSiws (body) {
+        return { async generateSiwsMessage () { return ${JSON.stringify(originalLoginMessage)} }, async loginWithSiws (body) {
           await fetch('/test-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
           value.authenticate()
         } }
