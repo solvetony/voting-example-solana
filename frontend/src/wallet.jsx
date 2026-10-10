@@ -16,16 +16,16 @@ function WalletBridge ({ children }) {
   const [selected, setSelected] = useState('')
   const [error, setError] = useState('')
   const network = useRef('mainnet-beta')
-  const { generateSiwsMessage, loginWithSiws } = useLoginWithSiws()
+  const { generateSiwsMessage, generateSiwsOffchainMessage, loginWithSiws } = useLoginWithSiws()
   const { connectWallet: connectForLogin } = useConnectWallet({
     async onSuccess ({ wallet }) {
       if (authenticated || network.current !== 'devnet') return
       try {
         if (wallet.type !== 'solana') throw new Error('Connect a Solana wallet')
-        const message = (await generateSiwsMessage({ address: wallet.address })).replace(/^Chain ID: mainnet$/m, 'Chain ID: devnet')
-        if (!/^Chain ID: devnet$/m.test(message)) throw new Error('Could not prepare devnet login message')
-        const { signature } = await wallet.provider.signMessage({ message: new TextEncoder().encode(message) })
-        await loginWithSiws({ message, signature: btoa(String.fromCharCode(...signature)), walletClientType: wallet.walletClientType, connectorType: wallet.connectorType })
+        const message = await generateSiwsMessage({ address: wallet.address })
+        const bytes = generateSiwsOffchainMessage({ message, address: wallet.address })
+        const { signature } = await wallet.provider.signMessage({ message: bytes })
+        await loginWithSiws({ message, signature: btoa(String.fromCharCode(...signature)), walletClientType: wallet.walletClientType, connectorType: wallet.connectorType, messageType: 'offchain-message' })
         setSelected(wallet.address)
       } catch (error) { setError(error.message || 'Wallet login failed') }
     },

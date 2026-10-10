@@ -77,8 +77,10 @@ displays a devnet notice, and token/block/transaction links select devnet.
 
 Keep Phantom or Solflare on devnet when connecting. The frontend reads the
 network from `/voting-api/status`, connects the wallet, obtains a Privy SIWS
-nonce, and signs a message with `Chain ID: devnet` before submitting it to Privy.
-This avoids the SDK's default mainnet login message. Mainnet deployments retain
+nonce, and wraps the original SIWS message using Privy's Solana off-chain
+message format before signing. The original message is submitted unchanged with
+`messageType: 'offchain-message'`. Privy's authentication message retains its
+mainnet chain field; bond transactions still target devnet. Mainnet deployments retain
 the existing login flow. Browser tests mock Privy and wallet extensions; acceptance
 by the live Privy service and an actual extension still require manual verification.
 

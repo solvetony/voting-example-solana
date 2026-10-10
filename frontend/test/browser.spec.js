@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { generateKeyPairSync, sign, verify } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { transformWithOxc } from 'vite'
-import { ConnectedStandardSolanaWallet } from '@privy-io/js-sdk-core'
+import { buildSolanaOffchainMessage, ConnectedStandardSolanaWallet } from '@privy-io/js-sdk-core'
 import bs58 from 'bs58'
 import { signingText, verifyReceipt } from '../src/signing.js'
 
@@ -116,14 +116,17 @@ for (const [walletName, network] of [['Phantom', 'mainnet-beta'], ['Solflare', '
       const signed = await connected.signMessage({ message: new Uint8Array(message) })
       await route.fulfill({ json: { signature: Array.from(signed.signature) } })
     })
+    const originalLoginMessage = `${newAddress}\nChain ID: mainnet\nNonce: test-nonce\nURI: http://127.0.0.1:5173`
+    const offchainBytes = buildSolanaOffchainMessage({ message: originalLoginMessage, signerPublicKey: bs58.decode(newAddress), domain: 'http://127.0.0.1:5173' })
     let loginMessage
     await page.route('**/voting-api/status', route => route.fulfill({ json: { storageReady: true, indexReady: true, solanaNetwork: network } }))
     await page.route('**/test-login', async route => {
-      const { message, signature } = route.request().postDataJSON()
-      expect(message).toContain('Chain ID: devnet')
+      const { message, signature, messageType } = route.request().postDataJSON()
+      expect(message).toBe(originalLoginMessage)
+      expect(messageType).toBe('offchain-message')
       expect(message).toContain('Nonce: test-nonce')
       expect(message).toContain(newAddress)
-      expect(verify(null, Buffer.from(message), publicKey, Buffer.from(signature, 'base64'))).toBe(true)
+      expect(verify(null, buildSolanaOffchainMessage({ message, signerPublicKey: bs58.decode(newAddress), domain: 'http://127.0.0.1:5173' }), publicKey, Buffer.from(signature, 'base64'))).toBe(true)
       loginMessage = message
       await route.fulfill({ json: { success: true } })
     })
@@ -160,7 +163,7 @@ for (const [walletName, network] of [['Phantom', 'mainnet-beta'], ['Solflare', '
       }
       export function useLoginWithSiws () {
         const value = useContext(context)
-        return { async generateSiwsMessage ({ address }) { return address + '\\nChain ID: mainnet\\nNonce: test-nonce' }, async loginWithSiws (body) {
+        return { async generateSiwsMessage () { return ${JSON.stringify(originalLoginMessage)} }, generateSiwsOffchainMessage ({ message, address }) { if (message !== ${JSON.stringify(originalLoginMessage)} || address !== '${newAddress}') throw new Error('SIWS message altered'); return new Uint8Array(${JSON.stringify(Array.from(offchainBytes))}) }, async loginWithSiws (body) {
           await fetch('/test-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
           value.authenticate()
         } }
